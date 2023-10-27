@@ -18,6 +18,7 @@ from matplotlib.figure import Figure
 import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+
 # DEFINE GLOBAL VARs FIRST TIME
 error_log = "error.log"
 config_ini = "config.ini"
@@ -511,53 +512,57 @@ TESTER()
 
 
 #SQL Requests Function
-def SQL_REQ(query, mode):
+def SQL_REQ(query, vars, mode):
     def SQL_CLOSE():
         cursor.close()
         connection.close()
     try:
-        connection = pyodbc.connect('DRIVER=' + SQLDRIVER + ';Server=' + SQLSERVERNAME + ';Database=' + SQLDATABASE + ';UID=' + SQLUSERNAME + ';TrustedServerCertificate=1;Encrypt=No;PWD=' + SQLPASSWORD)
+        connection = pyodbc.connect(f"DRIVER={SQLDRIVER};Server={SQLSERVERNAME};Database={SQLDATABASE};UID={SQLUSERNAME};TrustedServerCertificate=1;Encrypt=No;PWD={SQLPASSWORD}")
         connection.autocommit=True
         cursor = connection.cursor()
     except Exception as e:
         error(17)
-        debuger(e)
+        debuger(str(e)+" # ", query+" # ", str(vars)+" # ", str(mode))
         if os.path.exist(test_done): os.remove(test_done)
         SQL_CLOSE()
     try:
         if mode == "S_one":
-            cursor.execute(query)
+            cursor.execute(query, vars)
             data = cursor.fetchone()
             SQL_CLOSE()
             return data
         elif mode == "S_all":
-            cursor.execute(query)
+            cursor.execute(query, vars)
             data = cursor.fetchall()
             SQL_CLOSE()
             return data
         elif mode == "S_one_D":
-            cursor.execute(query)
+            cursor.execute(query, vars)
             data = [cursor.fetchone(), cursor.description]
             SQL_CLOSE()
             return data
         elif mode == "S_all_D":
-            cursor.execute(query)
+            cursor.execute(query, vars)
             data = [cursor.fetchall(), cursor.description]
             SQL_CLOSE()
             return data
-        elif mode == "I_many":
-            cursor.executemany(query[0], query[1])
-        elif mode == "I_D":
-            cursor.execute(query[0], query[1])
-        elif mode == "U_D":
-            cursor.execute(query[0], query[1])
-        elif mode == "D":
-            cursor.execute(query)
+        elif mode == "W":
+            cursor.execute(query, vars)
+        elif mode == "W_many":
+            cursor.executemany(query, vars)
+        # elif mode == "I_many":
+        #     cursor.executemany(query, vars)
+        # elif mode == "I_D":
+        #     cursor.execute(query[0], query[1])
+        # elif mode == "U_D":
+        #     cursor.execute(query[0], query[1])
+        # elif mode == "D":
+        #     cursor.execute(query)
         SQL_CLOSE()
     except Exception as e:
         error(17)
-        debuger(e)
-        if os.path.exist(test_done): os.remove(test_done)
+        debuger(str(e)+" # "+query+" # "+str(vars)+" # "+str(mode))
+        if os.path.exists(test_done): os.remove(test_done)
         SQL_CLOSE()
 
 
@@ -591,15 +596,15 @@ def beep(bool):
 class PasswordDatabase:
     def __init__(self):
         self.data = dict()
-        row = SQL_REQ('SELECT login, password FROM dbo.authentication WHERE activity=1', "S_all")
+        row = SQL_REQ("SELECT login, password FROM dbo.authentication WHERE activity=1", (), "S_all")
         self.data = {k: v for k, v in row}
     def register(self, user, password, name, rights, activity):
         if user in self.data:
             return error(3)
         pwd_hash = self.hash_password(password)
         self.data[user] = pwd_hash
-        val = [(user, pwd_hash, name, rights, activity)]
-        SQL_REQ(["INSERT INTO dbo.authentication(login, password, full_name, rights, activity) values (?,?,?,?,?)", val], "I_many")
+        val = (user, pwd_hash, name, rights, activity)
+        SQL_REQ("INSERT INTO dbo.authentication(login, password, full_name, rights, activity) values (?,?,?,?,?)", val, "W")
         return True
     def hash_password(self, password):
         pwd_bytes = password.encode("utf-8")
@@ -683,8 +688,7 @@ def login_func(*args):
     if login_class.login(login, password):
         login_frame.pack_forget()
         Menu_Bar.pack(fill=tk.BOTH, expand=1)
-        row = SQL_REQ('SELECT full_name, rights FROM dbo.authentication WHERE login=\''+login+'\'', "S_all")
-        for a in row: security = a
+        security = SQL_REQ("SELECT full_name, rights FROM dbo.authentication WHERE login=?", (login,), "S_one")
         Log_Tracer = True
         Security_Name.configure(text=security[0])
         Security_Reset_Button.pack(side=tk.RIGHT, padx=(10, 50))
@@ -718,7 +722,7 @@ def shift_change(event):
         login_button.bind_all('<Return>', login_func)
 
 def over_extract(M, Y, company):
-    row = SQL_REQ("SELECT over_count, trucks_onyard, trailers_onyard, date, company_ID FROM dbo.OVERPARKING WHERE MONTH(date)=\'" + str(M) + "\' AND YEAR(date)=\'" + str(Y) + "\' AND company_ID=\'" + str(company) + "\' ORDER BY date", "S_all_D")
+    row = SQL_REQ("SELECT over_count, trucks_onyard, trailers_onyard, date, company_ID FROM dbo.OVERPARKING WHERE MONTH(date)=? AND YEAR(date)=? AND company_ID=? ORDER BY date", (str(M), str(Y), str(company)), "S_all_D")
     if not row[0]: return
     res = []
     for n in row[0]:
@@ -818,7 +822,7 @@ def OVERPARKING (event, func):
     global StatisticOVER
     def get_units(company_id):
         # making list of truck numbers on yard NULL if none
-        truck_list_q = SQL_REQ('SELECT truck_number FROM dbo.Tenant_Trucks WHERE status=1 AND company_ID=\'' + str(company_id) + '\'', "S_all")
+        truck_list_q = SQL_REQ("SELECT truck_number FROM dbo.Tenant_Trucks WHERE status=1 AND company_ID=?", (str(company_id),), "S_all")
         if truck_list_q:
             truck_list = []
             for x in truck_list_q: truck_list.append(x[0])
@@ -827,7 +831,7 @@ def OVERPARKING (event, func):
             over_trucks = l.strip("|")
         else:
             over_trucks = None
-        truck_list_q = SQL_REQ('SELECT truck_number FROM dbo.Tenant_Trucks_UNREG WHERE status=1 AND company_ID=\'' + str(company_id) + '\'', "S_all")
+        truck_list_q = SQL_REQ("SELECT truck_number FROM dbo.Tenant_Trucks_UNREG WHERE status=1 AND company_ID=?", (str(company_id),), "S_all")
         if truck_list_q:
             truck_list = []
             for x in truck_list_q: truck_list.append(x[0])
@@ -838,7 +842,7 @@ def OVERPARKING (event, func):
             over_trucks_UNREG = None
 
         # making list of trailer numbers on yard NULL if none
-        trailer_list_q = SQL_REQ('SELECT trailer_number FROM dbo.Tenant_Trailers WHERE status=1 AND company_ID=\'' + str(company_id) + '\'', "S_all")
+        trailer_list_q = SQL_REQ("SELECT trailer_number FROM dbo.Tenant_Trailers WHERE status=1 AND company_ID=?", (str(company_id),), "S_all")
         if trailer_list_q:
             trailer_list = []
             for x in trailer_list_q: trailer_list.append(x[0])
@@ -847,7 +851,7 @@ def OVERPARKING (event, func):
             over_trailers = l.strip("|")
         else:
             over_trailers = None
-        trailer_list_q = SQL_REQ('SELECT trailer_number FROM dbo.Tenant_Trailers_UNREG WHERE status=1 AND company_ID=\'' + str(company_id) + '\'', "S_all")
+        trailer_list_q = SQL_REQ("SELECT trailer_number FROM dbo.Tenant_Trailers_UNREG WHERE status=1 AND company_ID=?", (str(company_id),), "S_all")
         if trailer_list_q:
             trailer_list = []
             for x in trailer_list_q: trailer_list.append(x[0])
@@ -880,7 +884,7 @@ def OVERPARKING (event, func):
     if func == "T":
         statistics_reg("T")
         if event["Company"] == "Euro Can": return  #return if Euro+Can
-        row, col = SQL_REQ('SELECT regular, truck, trailer, designated, company_ID FROM dbo.Company_List WHERE company_name=\'' + event["Company"] + '\' AND activity=1', "S_one_D")
+        row, col = SQL_REQ("SELECT regular, truck, trailer, designated, company_ID FROM dbo.Company_List WHERE company_name=? AND activity=1", (event["Company"],), "S_one_D")
         spot_list = {}
         if row:
             index = 0
@@ -896,16 +900,16 @@ def OVERPARKING (event, func):
             return
         truckN = spot_list["regular"] + spot_list["truck"] + spot_list["designated"]
         trailerN = spot_list["regular"] + spot_list["designated"] + spot_list["trailer"]
-        query = SQL_REQ('SELECT COUNT(*) FROM dbo.Tenant_Trucks WHERE company_ID=\'' + str(spot_list["company_ID"]) + '\' AND status=1', "S_one")
+        query = SQL_REQ("SELECT COUNT(*) FROM dbo.Tenant_Trucks WHERE company_ID=? AND status=1", (str(spot_list["company_ID"]),), "S_one")
         if query: Tval = int(query[0])
         else: Tval = 0
-        query = SQL_REQ('SELECT COUNT(*) FROM dbo.Tenant_Trucks_UNREG WHERE company_ID=\'' + str(spot_list["company_ID"]) + '\' AND status=1', "S_one")
+        query = SQL_REQ("SELECT COUNT(*) FROM dbo.Tenant_Trucks_UNREG WHERE company_ID=? AND status=1", (str(spot_list["company_ID"]),), "S_one")
         if query: Tval_UNREG = int(query[0])
         else: Tval_UNREG = 0
-        query = SQL_REQ('SELECT COUNT(*) FROM dbo.Tenant_Trailers WHERE company_ID=\'' + str(spot_list["company_ID"]) + '\' AND status=1', "S_one")
+        query = SQL_REQ("SELECT COUNT(*) FROM dbo.Tenant_Trailers WHERE company_ID=? AND status=1", (str(spot_list["company_ID"]),), "S_one")
         if query: TRval = int(query[0])
         else: TRval = 0
-        query = SQL_REQ('SELECT COUNT(*) FROM dbo.Tenant_Trailers_UNREG WHERE company_ID=\'' + str(spot_list["company_ID"]) + '\' AND status=1', "S_one")
+        query = SQL_REQ("SELECT COUNT(*) FROM dbo.Tenant_Trailers_UNREG WHERE company_ID=? AND status=1", (str(spot_list["company_ID"]),), "S_one")
         if query: TRval_UNREG = int(query[0])
         else: TRval_UNREG = 0
         TrucksONyard = Tval + Tval_UNREG
@@ -920,7 +924,7 @@ def OVERPARKING (event, func):
         event["Time"] = event_datetime.strftime("%H:%M:%S")
 
         #check if there is over record TODAY
-        row, col = SQL_REQ('SELECT * FROM dbo.OVERPARKING WHERE date=\'' + event["Date"] + '\' AND company_ID=\'' + str(spot_list["company_ID"]) + '\'', "S_one_D")
+        row, col = SQL_REQ("SELECT * FROM dbo.OVERPARKING WHERE date=? AND company_ID=?", (event["Date"], str(spot_list["company_ID"])), "S_one_D")
         last_record = {}
         if row:
             index = 0
@@ -944,11 +948,11 @@ def OVERPARKING (event, func):
                 #check if number of overs equal number of over_time # can be deleted
                 if onYardOver != len(over_time.split()): print("TROUBLE")
                 #update over record
-                SQL_REQ(["UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE company_ID=? AND date=?",(str(onYardOver), units[0], units[1], event["Time"], over_time, str(spot_list["company_ID"]), event["Date"])], "U_D")
+                SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE company_ID=? AND date=?",(str(onYardOver), units[0], units[1], event["Time"], over_time, str(spot_list["company_ID"]), event["Date"]), "W")
             elif last_record["over_count"] > onYardOver:
                 #check if current time is under 2h allowed time from midnight
                 if event_datetime.hour < int(sets["Overparking_Timeout"]):
-                    row, col = SQL_REQ("SELECT * FROM dbo.OVERPARKING WHERE date < (SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=\'" + str(spot_list["company_ID"]) + "\') AND company_ID=\'" + str(spot_list["company_ID"]) + "\' ORDER BY date ASC", "S_one_D")
+                    row, col = SQL_REQ("SELECT * FROM dbo.OVERPARKING WHERE date < (SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=?) AND company_ID=? ORDER BY date ASC", (str(spot_list["company_ID"]), str(spot_list["company_ID"])), "S_one_D")
                     previous_record = {}
                     if row:
                         index = 0
@@ -979,8 +983,8 @@ def OVERPARKING (event, func):
                                         pr_over_time_new = "|".join(pr_over_times)
                                         if pr_over_time_new == "": pr_over_time_new = None
                                         print("marker 1 ", pr_over_time_new)
-                                        SQL_REQ(["UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE date=? AND company_ID=?", (previous_over_new, units[0], units[1], event["Time"], pr_over_time_new, previous_record["date"], str(spot_list["company_ID"]))], "U_D")
-                                        SQL_REQ(["UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], str(spot_list["company_ID"]), event["Date"])], "U_D")
+                                        SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE date=? AND company_ID=?", (previous_over_new, units[0], units[1], event["Time"], pr_over_time_new, previous_record["date"], str(spot_list["company_ID"])), "W")
+                                        SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], str(spot_list["company_ID"]), event["Date"]), "W")
                                         return
                                     else: continue
                 if last_record["over_time"] != 0:
@@ -995,17 +999,16 @@ def OVERPARKING (event, func):
                             over_time_list.remove(time_str)
                             over_time_list_new = "|".join(over_time_list)
                             if over_time_list_new == "": over_time_list_new = None
-                            SQL_REQ(["UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], over_time_list_new, str(spot_list["company_ID"]), event["Date"])], "U_D")
+                            SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], over_time_list_new, str(spot_list["company_ID"]), event["Date"]), "W")
                             return
                 else:
                     if event_datetime.hour < int(sets["Overparking_Timeout"]):
-                        SQL_REQ(["UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], str(spot_list["company_ID"]), event["Date"])], "U_D")
+                        SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], str(spot_list["company_ID"]), event["Date"]), "W")
                         return
         else:
             if onYardOver > 0:
                 if event_datetime.hour < int(sets["Overparking_Timeout"]):
-                    print("OKK")
-                    row, col = SQL_REQ('SELECT * FROM dbo.OVERPARKING WHERE date=(SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=\'' + str(spot_list["company_ID"]) + '\')', "S_one_D")
+                    row, col = SQL_REQ("SELECT * FROM dbo.OVERPARKING WHERE date=(SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=?)", (str(spot_list["company_ID"]),), "S_one_D")
                     if row:
                         previous_record = {}
                         index = 0
@@ -1018,10 +1021,10 @@ def OVERPARKING (event, func):
                                 previous_record.update({z[0]: 0})
                         print("OKK", previous_record)
                         if previous_record["over_count"] == 0:
-                            SQL_REQ(['INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)',(event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"]))], "I_D")
+                            SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)",(event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"])), "W")
                             return
                         else:
-                            if previous_record["over_count"] <= onYardOver: SQL_REQ(['INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)', (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"]))], "I_D")
+                            if previous_record["over_count"] <= onYardOver: SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"])), "W")
                             elif previous_record["over_count"] > onYardOver:
                                 if previous_record["over_time"] != 0:
                                     pr_time_list = previous_record["over_time"].split("|")
@@ -1033,16 +1036,15 @@ def OVERPARKING (event, func):
                                             pr_time_new = "|".join(pr_time_list)
                                             if pr_time_new == "": pr_time_new = None
                                             print(pr_time_new, type(pr_time_new))
-                                            SQL_REQ(["UPDATE dbo.OVERPARKING SET over_time=?, over_count=? WHERE date=(SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=?)", (pr_time_new, str(onYardOver), str(spot_list["company_ID"]))], "U_D")
-                                            SQL_REQ(['INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time) VALUES (?,?,?,?,?,?)', (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"])], "I_D")
+                                            SQL_REQ("UPDATE dbo.OVERPARKING SET over_time=?, over_count=? WHERE date=(SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=?)", (pr_time_new, str(onYardOver), str(spot_list["company_ID"])), "W")
+                                            SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time) VALUES (?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"]), "W")
                                             return
-                                else: SQL_REQ(['INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time) VALUES (?,?,?,?,?,?)', (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"])], "I_D")
+                                else: SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time) VALUES (?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"]), "W")
                 else:
-                    SQL_REQ(['INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)', (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"]))], "I_D")
-
+                    SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"])), "W")
             else:
                 if event_datetime.hour < int(sets["Overparking_Timeout"]):
-                    row, col = SQL_REQ('SELECT * FROM dbo.OVERPARKING WHERE date=(SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=\'' + str(spot_list["company_ID"]) + '\')', "S_one_D")
+                    row, col = SQL_REQ("SELECT * FROM dbo.OVERPARKING WHERE date=(SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=?)", (str(spot_list["company_ID"]),), "S_one_D")
                     if row:
                         previous_record = {}
                         index = 0
@@ -1068,11 +1070,10 @@ def OVERPARKING (event, func):
                                     pr_over_times.remove(time_str)
                                     pr_over_time_new = "|".join(pr_over_times)
                                     if pr_over_time_new == "": pr_over_time_new = None
-                                    SQL_REQ(["UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE date=? AND company_ID=?",
-                                             (previous_over_new, units[0], units[1], event["Time"], pr_over_time_new, previous_record["date"], str(spot_list["company_ID"]))], "U_D")
+                                    SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE date=? AND company_ID=?", (previous_over_new, units[0], units[1], event["Time"], pr_over_time_new, previous_record["date"], str(spot_list["company_ID"])), "W")
                                 else:
                                     continue
-                        SQL_REQ(['INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time) VALUES (?,?,?,?,?,?)', (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"])], "I_D")
+                        SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time) VALUES (?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"]), "W")
                 return
 
     elif func == "GN": #function for GN overparking if need in the future
@@ -1086,7 +1087,7 @@ def statistics_reg(func):
     global Company_Var
     datenow = datetime.now().date()
     def stat_reg(table, amount):
-        current = SQL_REQ("SELECT * FROM [dbo].[statistics] WHERE date=\'" + str(datenow) + "\'", "S_one")
+        current = SQL_REQ("SELECT * FROM [dbo].[statistics] WHERE date=?", (str(datenow),), "S_one")
         if table == "tenant_amount": inx = 1
         elif table == "gn_amount": inx = 2
         else:
@@ -1096,30 +1097,30 @@ def statistics_reg(func):
             if current[inx]:
                 last_num = int(current[inx])
                 if last_num >= amount: return
-            SQL_REQ(["UPDATE [dbo].[statistics] SET "+table+"=? WHERE date=?", (str(amount), str(datenow))], "U_D")
+            SQL_REQ("UPDATE [dbo].[statistics] SET "+table+"=? WHERE date=?", (str(amount), str(datenow)), "W")
             return
         if amount > 0:
             list = [str(datenow), None, None]
             list[inx] = str(amount)
-            SQL_REQ(["INSERT INTO [dbo].[statistics] (date, tenant_amount, gn_amount) VALUES (?,?,?)", list], "I_D")
+            SQL_REQ("INSERT INTO [dbo].[statistics] (date, tenant_amount, gn_amount) VALUES (?,?,?)", list, "W")
 
 
 
     if func == "T":
-        reg = SQL_REQ("SELECT COUNT(*) FROM dbo.Tenant_Trailers WHERE status=1", "S_one")
-        unreg = SQL_REQ("SELECT COUNT(*) FROM dbo.Tenant_Trailers_UNREG WHERE status=1", "S_one")
+        reg = SQL_REQ("SELECT COUNT(*) FROM dbo.Tenant_Trailers WHERE status=1", (), "S_one")
+        unreg = SQL_REQ("SELECT COUNT(*) FROM dbo.Tenant_Trailers_UNREG WHERE status=1", (), "S_one")
         amount = int(reg[0])+int(unreg[0])
         StatisticT.config(text=f"T: {amount}")
         stat_reg("tenant_amount", amount)
     elif func == "GN":
-        tr = SQL_REQ("SELECT COUNT(*) FROM dbo.GN_Trailers WHERE status=1", "S_one")
-        fb = SQL_REQ("SELECT COUNT(*) FROM dbo.GN_Flatbed WHERE status=1", "S_one")
+        tr = SQL_REQ("SELECT COUNT(*) FROM dbo.GN_Trailers WHERE status=1", (), "S_one")
+        fb = SQL_REQ("SELECT COUNT(*) FROM dbo.GN_Flatbed WHERE status=1", (), "S_one")
         amount = int(tr[0])+int(fb[0])
         StatisticGN.config(text=f"GN: {amount}")
         stat_reg("gn_amount", amount)
     elif func == "O":
         if Company_Var is None: return
-        statover = SQL_REQ("SELECT over_count FROM dbo.OVERPARKING AS ov INNER JOIN dbo.Company_List AS cl ON ov.company_ID=cl.company_ID WHERE ov.date=\'" + str(datenow) + "\' AND cl.company_name=\'" + Company_Var + "\'", "S_one")
+        statover = SQL_REQ("SELECT over_count FROM dbo.OVERPARKING AS ov INNER JOIN dbo.Company_List AS cl ON ov.company_ID=cl.company_ID WHERE ov.date=? AND cl.company_name=?", (str(datenow), Company_Var), "S_one")
         if statover:
             if int(statover[0])>0: StatisticOVER.config(text=f"O: {statover[0]}")
             else: StatisticOVER.config(text="")
@@ -1128,7 +1129,7 @@ def statistics_reg(func):
 def to_Excel(date, company):
 
     def lot_extract(company):
-        row, col = SQL_REQ("SELECT * FROM dbo.Company_List WHERE company_ID=\'" + str(company) + "\'", "S_one_D")
+        row, col = SQL_REQ("SELECT * FROM dbo.Company_List WHERE company_ID=?", (str(company),), "S_one_D")
         dict = {}
         if row:
             index = 0
@@ -1277,11 +1278,11 @@ def chk_update():
     if settings_file()["chk_datetime"] == "None":
         error(10)
         return
-    check_list = SQL_REQ("SELECT * FROM dbo.check_yard", "S_all")
+    check_list = SQL_REQ("SELECT * FROM dbo.check_yard", (), "S_all")
     for each in check_list:
         if each[1] == "GN":
             if each[2] == "truck":
-                unit_read = SQL_REQ("SELECT truck_number, status, last_date FROM dbo.GN_Trucks WHERE truck_number=\'"+each[3]+"\'", "S_one")
+                unit_read = SQL_REQ("SELECT truck_number, status, last_date FROM dbo.GN_Trucks WHERE truck_number=?", (each[3],), "S_one")
                 if unit_read is not None:
                     if unit_read[1] != each[4]:
                         if unit_read[2] is None: unit_read[2] = datetime(2022, 1, 1, 1, 1, 1)
@@ -1300,7 +1301,7 @@ def chk_update():
                             }
                             GN_Record(record)
             elif each[2] == "trailer":
-                unit_read = SQL_REQ("SELECT trailer_number, status, last_date FROM dbo.GN_Trailers WHERE trailer_number=\'" + each[3] + "\'", "S_one")
+                unit_read = SQL_REQ("SELECT trailer_number, status, last_date FROM dbo.GN_Trailers WHERE trailer_number=?", (each[3],), "S_one")
                 if unit_read is not None:
                     if unit_read[1] != each[4]:
                         if unit_read[2] is None: unit_read[2] = datetime(2022, 1, 1, 1, 1, 1)
@@ -1319,7 +1320,7 @@ def chk_update():
                             }
                             GN_Record(record)
             elif each[2] == "flatbed":
-                unit_read = SQL_REQ("SELECT fb_number, status, last_date FROM dbo.GN_Flatbed WHERE fb_number=\'" + each[3] + "\'", "S_one")
+                unit_read = SQL_REQ("SELECT fb_number, status, last_date FROM dbo.GN_Flatbed WHERE fb_number=?", (each[3],), "S_one")
                 if unit_read is not None:
                     if unit_read[1] != each[4]:
                         if unit_read[2] is None: unit_read[2] = datetime(2022, 1, 1, 1, 1, 1)
@@ -1340,7 +1341,7 @@ def chk_update():
 
         else:
             if each[2] == "truck":
-                unit_read = SQL_REQ("SELECT truck_number, status, last_date FROM dbo.Tenant_Trucks AS tt INNER JOIN dbo.Company_List AS cl ON tt.company_ID=cl.company_ID WHERE tt.truck_number=\'"+each[3]+"\' AND cl.company_name=\'"+each[1]+"\'", "S_one")
+                unit_read = SQL_REQ("SELECT truck_number, status, last_date FROM dbo.Tenant_Trucks AS tt INNER JOIN dbo.Company_List AS cl ON tt.company_ID=cl.company_ID WHERE tt.truck_number=? AND cl.company_name=?", (each[3], each[1]), "S_one")
                 if unit_read is not None:
                     if unit_read[1] != each[4]:
                         if unit_read[2] is None: unit_read[2] = datetime(2022,1,1,1,1,1)
@@ -1349,7 +1350,7 @@ def chk_update():
                         else:continue
                     else: continue
                 else:
-                    unit_read = SQL_REQ("SELECT truck_number, status, last_date FROM dbo.Tenant_Trucks_UNREG AS ttu INNER JOIN dbo.Company_List AS cl ON ttu.company_ID=cl.company_ID WHERE ttu.truck_number=\'" + each[3] + "\' AND cl.company_name=\'"+each[1]+"\'", "S_one")
+                    unit_read = SQL_REQ("SELECT truck_number, status, last_date FROM dbo.Tenant_Trucks_UNREG AS ttu INNER JOIN dbo.Company_List AS cl ON ttu.company_ID=cl.company_ID WHERE ttu.truck_number=? AND cl.company_name=?", (each[3], each[1]), "S_one")
                     if unit_read is not None:
                         if unit_read[1] != each[4]:
                             if unit_read[2] is None: unit_read[2] = datetime(2022, 1, 1, 1, 1, 1)
@@ -1360,7 +1361,7 @@ def chk_update():
                     else:
                         comment = "unregistered"
                         if each[1] == "Euro Can":
-                            chk_eu_his = SQL_REQ("SELECT TOP 1 * FROM dbo.Tenant_History AS th INNER JOIN dbo.Company_List AS cl ON th.company_ID=cl.company_ID WHERE th.truck_number=\'" + each[3] + "\' AND cl.company_name=\'"+each[1]+"\' AND th.datetime_event>\'"+each[0].strftime("%Y-%m-%d %H:%M:%S")+"\' ORDER BY th.datetime_event DESC", "S_one")
+                            chk_eu_his = SQL_REQ("SELECT TOP 1 * FROM dbo.Tenant_History AS th INNER JOIN dbo.Company_List AS cl ON th.company_ID=cl.company_ID WHERE th.truck_number=? AND cl.company_name=? AND th.datetime_event>? ORDER BY th.datetime_event DESC", (each[3], each[1], each[0].strftime("%Y-%m-%d %H:%M:%S")), "S_one")
                             if chk_eu_his: continue
                 record = {
                     "Company": each[1],
@@ -1373,7 +1374,7 @@ def chk_update():
                 }
                 Tenant_Record(record)
             elif each[2] == "trailer":
-                unit_read = SQL_REQ("SELECT trailer_number, status, last_date FROM dbo.Tenant_Trailers AS TTr INNER JOIN dbo.Company_List AS cl ON TTr.company_ID=cl.company_ID WHERE TTr.trailer_number=\'" + each[3] + "\' AND cl.company_name=\'"+each[1]+"\'", "S_one")
+                unit_read = SQL_REQ("SELECT trailer_number, status, last_date FROM dbo.Tenant_Trailers AS TTr INNER JOIN dbo.Company_List AS cl ON TTr.company_ID=cl.company_ID WHERE TTr.trailer_number=? AND cl.company_name=?", (each[3], each[1]), "S_one")
                 if unit_read is not None:
                     if unit_read[1] != each[4]:
                         if unit_read[2] is None: unit_read[2] = datetime(2022, 1, 1, 1, 1, 1)
@@ -1382,7 +1383,7 @@ def chk_update():
                         else: continue
                     else: continue
                 else:
-                    unit_read = SQL_REQ("SELECT trailer_number, status, last_date FROM dbo.Tenant_Trailers_UNREG AS TTru INNER JOIN dbo.Company_List AS cl ON TTru.company_ID=cl.company_ID WHERE TTru.trailer_number=\'" + each[3] + "\' AND cl.company_name=\'"+each[1]+"\'", "S_one")
+                    unit_read = SQL_REQ("SELECT trailer_number, status, last_date FROM dbo.Tenant_Trailers_UNREG AS TTru INNER JOIN dbo.Company_List AS cl ON TTru.company_ID=cl.company_ID WHERE TTru.trailer_number=? AND cl.company_name=?", (each[3], each[1]), "S_one")
                     if unit_read is not None:
                         if unit_read[1] != each[4]:
                             if unit_read[2] is None: unit_read[2] = datetime(2022, 1, 1, 1, 1, 1)
@@ -1395,7 +1396,7 @@ def chk_update():
                     else:
                         comment = "unregistered"
                         if each[1] == "Euro Can":
-                            chk_eu_his = SQL_REQ("SELECT TOP 1 * FROM dbo.Tenant_History AS th INNER JOIN dbo.Company_List AS cl ON th.company_ID=cl.company_ID WHERE th.trailer_number=\'" + each[3] + "\' AND cl.company_name=\'"+each[1]+"\' AND th.datetime_event>\'"+each[0].strftime("%Y-%m-%d %H:%M:%S")+"\' ORDER BY th.datetime_event DESC", "S_one")
+                            chk_eu_his = SQL_REQ("SELECT TOP 1 * FROM dbo.Tenant_History AS th INNER JOIN dbo.Company_List AS cl ON th.company_ID=cl.company_ID WHERE th.trailer_number=? AND cl.company_name=? AND th.datetime_event>? ORDER BY th.datetime_event DESC", (each[3], each[1], each[0].strftime("%Y-%m-%d %H:%M:%S")), "S_one")
                             if chk_eu_his: continue
                 record = {
                     "Company": each[1],
@@ -1416,7 +1417,7 @@ def chk_update():
 
 
 def check_generate(func):
-    SQL_REQ("DELETE FROM dbo.check_yard", "D")
+    SQL_REQ("DELETE FROM dbo.check_yard", (), "W")
     date = datetime.now().replace(microsecond=0)
     #dateNow = date.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -1470,7 +1471,7 @@ def check_generate(func):
 
             for trucknumber in sorted(truck.items(), key=lambda x:len(x[0])):
                 unit_type="truck"
-                SQL_REQ(['INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)', (date, companyname, unit_type, trucknumber[0], trucknumber[1])], "I_D")
+                SQL_REQ("INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)", (date, companyname, unit_type, trucknumber[0], trucknumber[1]), "W")
                 ws.cell(row=Y, column=X).value = trucknumber[0]
                 ws.cell(row=Y, column=X).font = Font(name="Bahnschrift SemiBold SemiConden", size=8, b=True)
                 ws.cell(row=Y, column=X).alignment = Alignment(horizontal='center')
@@ -1502,7 +1503,7 @@ def check_generate(func):
             for trailernumber in sorted(trailer.items(), key=lambda x:len(x[0])):
 
                 unit_type="trailer"
-                SQL_REQ(['INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)', (date, companyname, unit_type, trailernumber[0], trailernumber[1])], "I_D")
+                SQL_REQ("INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)", (date, companyname, unit_type, trailernumber[0], trailernumber[1]), "W")
                 if X == 2 and Y != Z: ws.cell(row=Y, column=X - 1).border = Border(left=Side(border_style='medium'))
                 ws.cell(row=Y, column=X).value = trailernumber[0]
                 ws.cell(row=Y, column=X).font = Font(name="Bahnschrift SemiBold SemiConden", size=8, b=True)
@@ -1580,7 +1581,7 @@ def check_generate(func):
     column_coord1 = 1
     for GNTtruck in sorted(GNtrucks.items(), key=lambda x:len(x[0])):
         type="truck"
-        SQL_REQ(['INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)', (date, "GN", type, GNTtruck[0], GNTtruck[1])], "I_D")
+        SQL_REQ("INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)", (date, "GN", type, GNTtruck[0], GNTtruck[1]), "W")
         wS.cell(row=row_coord1, column=column_coord1).value = GNTtruck[0]
         wS.cell(row=row_coord1, column=column_coord1).border = Border(bottom=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'))
         wS.cell(row=row_coord1, column=column_coord1).font = Font(name="Bahnschrift SemiBold SemiConden", size=14, b=True)
@@ -1594,7 +1595,7 @@ def check_generate(func):
     column_coord2 = 4
     for GNTtrailer in sorted(GNtrailers.items(), key=lambda x:len(x[0])):
         type="trailer"
-        SQL_REQ(['INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)', (date, "GN", type, GNTtrailer[0], GNTtrailer[1])], "I_D")
+        SQL_REQ("INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)", (date, "GN", type, GNTtrailer[0], GNTtrailer[1]), "W")
         wS.cell(row=row_coord2, column=column_coord2).value = GNTtrailer[0]
         wS.cell(row=row_coord2, column=column_coord2).border = Border(bottom=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'))
         wS.cell(row=row_coord2, column=column_coord2).font = Font(name="Bahnschrift SemiBold SemiConden", size=14, b=True)
@@ -1608,7 +1609,7 @@ def check_generate(func):
     column_coord3 = 7
     for GNTfb in sorted(GNfb.items(), key=lambda x:len(x[0])):
         type = "flatbed"
-        SQL_REQ(['INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)', (date, "GN", type, GNTfb[0], GNTfb[1])], "I_D")
+        SQL_REQ("INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)", (date, "GN", type, GNTfb[0], GNTfb[1]), "W")
         wS.cell(row=row_coord3, column=column_coord3).value = GNTfb[0]
         wS.cell(row=row_coord3, column=column_coord3).border = Border(bottom=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'))
         wS.cell(row=row_coord3, column=column_coord3).font = Font(name="Bahnschrift SemiBold SemiConden", size=14, b=True)
@@ -1651,9 +1652,8 @@ def check_generate(func):
                     if item["private"]:
                         prv = item["expiration"]
                     elif not item["private"]:
-                        car_amount = SQL_REQ('SELECT car FROM dbo.Company_List WHERE company_name=\'' + companyname + '\'', "S_one")
+                        car_amount = SQL_REQ("SELECT car FROM dbo.Company_List WHERE company_name=?", (companyname,), "S_one")
                         prv = car_amount[0]
-
                     carlist.append([item['plates'], item['car_model'], item["driver_name"], companyname, prv])
     carlist.sort(key=lambda x: x[0])
     Carsize=20
@@ -1882,7 +1882,7 @@ def _unit_vis_(master,x, func):
 def cars(master, company, func):
     if func == "main" or func == "main_vis": table = "dbo.visitors"
     else: table = "dbo.visitors_UNREG"
-    row, col = SQL_REQ('SELECT * FROM '+table+' INNER JOIN dbo.Company_List ON '+table+'.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=\'' + company + '\'', "S_all_D")
+    row, col = SQL_REQ(f"SELECT * FROM {table} INNER JOIN dbo.Company_List ON {table}.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=?", (company,), "S_all_D")
     carlist = []
     for x in range(len(row)):
         a = {}
@@ -1906,28 +1906,28 @@ def Tenant_Register_UNREG(comp_ID, unit_number, IN_OUT, event_date, func):
         table = "dbo.Tenant_Trailers_UNREG"
         column = "trailer_number"
     if unit_number is None: return
-    val = SQL_REQ('SELECT company_ID FROM '+table+' WHERE '+column+'=\'' +unit_number+ '\' AND company_ID=\'' + str(comp_ID) + '\'', "S_all")
+    val = SQL_REQ(f"SELECT company_ID FROM {table} WHERE {column}=? AND company_ID=?", (unit_number, str(comp_ID)), "S_all")
     if IN_OUT: b = "1"
     else: b = "0"
     if not val:
-        if comp_ID == "11" and b == "0": SQL_REQ('DELETE FROM '+table+' WHERE '+column+'=\'' +unit_number+ '\' AND company_ID=\'' + str(comp_ID) + '\'', "D")
-        else: SQL_REQ(['INSERT INTO '+table+'(company_ID, '+column+', status, last_date) VALUES (?,?,?,?)', (comp_ID, unit_number, b, event_date)], "I_D")
+        if comp_ID == "11" and b == "0": SQL_REQ(f"DELETE FROM {table} WHERE {column}=? AND company_ID=?", (unit_number, str(comp_ID)), "W")
+        else: SQL_REQ(f"INSERT INTO {table} (company_ID, {column}, status, last_date) VALUES (?,?,?,?)", (comp_ID, unit_number, b, event_date), "W")
     else:
-        if comp_ID == "11" and b == "0": SQL_REQ('DELETE FROM '+table+' WHERE '+column+'=\'' +unit_number+ '\' AND company_ID=\'' + str(comp_ID) + '\'', "D")
-        else: SQL_REQ('UPDATE '+table+' SET status='+b+', last_date=\''+event_date+'\' WHERE company_ID=\'' + str(comp_ID) + '\' AND '+column+'=\'' +unit_number+ '\'', "D")
+        if comp_ID == "11" and b == "0": SQL_REQ(f"DELETE FROM {table} WHERE {column}=? AND company_ID=?", (unit_number, str(comp_ID)), "W")
+        else: SQL_REQ(f"UPDATE {table} SET status=?, last_date=?' WHERE company_ID=? AND {column}=?", (b, event_date, str(comp_ID), unit_number), "W")
 
 def Vis_Register_UNREG(comp_ID, plate, model, driver, event_date, IN_OUT):
     table = "dbo.visitors_UNREG"
     column = "plates"
-    val = SQL_REQ('SELECT company_ID FROM ' + table + ' WHERE ' + column + '=\'' + plate + '\'', "S_all")
+    val = SQL_REQ(f"SELECT company_ID FROM {table} WHERE {column}=?", (plate,), "S_all")
     if IN_OUT:
         b = "1"
     else:
         b = "0"
     if not val:
-        SQL_REQ(['INSERT INTO ' + table + '(company_ID, ' + column + ', driver_name, car_model, status, last_date) VALUES (?,?,?,?,?,?)', (comp_ID, plate, driver, model, b, event_date)], "I_D")
+        SQL_REQ(f"INSERT INTO {table} (company_ID, {column}, driver_name, car_model, status, last_date) VALUES (?,?,?,?,?,?)", (comp_ID, plate, driver, model, b, event_date), "W")
     else:
-        SQL_REQ('UPDATE ' + table + ' SET status=' + b + ', last_date=\'' + event_date + '\' WHERE company_ID=\'' + str(comp_ID) + '\' AND ' + column + '=\'' + plate + '\'', "D")
+        SQL_REQ(f"UPDATE {table} SET status=?, last_date=? WHERE company_ID=? AND {column}=?", (b, event_date, str(comp_ID), plate), "W")
 
 #REFRESH TENANT WINDOW FUNC
 def Refresh(wnd):
@@ -2100,81 +2100,112 @@ def Tabs_Refresh(event):
 
 def units_lst(query, func=None):
     # SQL QUERRIES
+    # extract company data in format: full - list(name, id, list(Dis,Reg,Trl, Trk, car); insurance); D - list(name, id); None - list(name)
     if query == "company":
-        company_list = []
-        row = SQL_REQ('SELECT company_name FROM dbo.Company_List WHERE activity=1 ORDER BY company_name', "S_all")
-        for x in row:
-            company_list.append(x[0])
+        req = SQL_REQ("SELECT * FROM dbo.Company_List WHERE activity=1 ORDER BY company_name", (), "S_all")
+        print(req)
+        if func == "full":
+            company_list = [[row[1], row[0], [row[2], row[3], row[4], row[5], row[6]], row[8]] for row in req]
+        elif func == "D":
+            company_list = [[row[1], row[0]] for row in req]
+        else: company_list = [row[1] for row in req]
         return company_list
     elif query == "GNtrucks":
             dict = {}
-            row = SQL_REQ('SELECT truck_number, status FROM dbo.GN_Trucks ORDER BY len(truck_number), truck_number', "S_all")
+            row = SQL_REQ("SELECT truck_number, status FROM dbo.GN_Trucks ORDER BY len(truck_number), truck_number", (), "S_all")
             for x in row:
                 dict.update({x[0]: x[1]})
             return dict
     elif query == "GNtrailers":
             dict = {}
-            row = SQL_REQ('SELECT trailer_number, status, storage, LU FROM dbo.GN_Trailers ORDER BY len(trailer_number), trailer_number', "S_all")
+            row = SQL_REQ("SELECT trailer_number, status, storage, LU FROM dbo.GN_Trailers ORDER BY len(trailer_number), trailer_number", (), "S_all")
             for x in row:
                 dict.update({x[0]: list((x[1], x[2], x[3]))})
             return dict
     elif query == "GNfb":
             dict = {}
-            row = SQL_REQ('SELECT fb_number, status, storage, LU FROM dbo.GN_Flatbed ORDER BY len(fb_number),fb_number', "S_all")
+            row = SQL_REQ("SELECT fb_number, status, storage, LU FROM dbo.GN_Flatbed ORDER BY len(fb_number),fb_number", (), "S_all")
             for x in row:
                 dict.update({x[0]: list((x[1], x[2], x[3]))})
             return dict
     else:
         if func == "trucks":
             dict = {}
-            row = SQL_REQ('SELECT truck_number, status FROM dbo.Tenant_Trucks INNER JOIN dbo.Company_List ON dbo.Tenant_Trucks.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=\''+query+'\' ORDER BY len(truck_number), truck_number', "S_all")
+            row = SQL_REQ("SELECT truck_number, status FROM dbo.Tenant_Trucks INNER JOIN dbo.Company_List ON dbo.Tenant_Trucks.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=? ORDER BY len(truck_number), truck_number", (query,), "S_all")
             for x in row:
                 dict.update({x[0]: x[1]})
             return dict
         elif func == "trailers":
             dict = {}
-            row = SQL_REQ('SELECT trailer_number, status, storage FROM dbo.Tenant_Trailers INNER JOIN dbo.Company_List ON dbo.Tenant_Trailers.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=\''+query+'\' ORDER BY len(trailer_number), trailer_number', "S_all")
+            row = SQL_REQ("SELECT trailer_number, status, storage FROM dbo.Tenant_Trailers INNER JOIN dbo.Company_List ON dbo.Tenant_Trailers.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=? ORDER BY len(trailer_number), trailer_number", (query,), "S_all")
             for x in row:
                 dict.update({x[0]: list((x[1], x[2]))})
             return dict
         elif func == "trucks+":
             dict = {}
-            row = SQL_REQ('SELECT truck_number, status FROM dbo.Tenant_Trucks_UNREG INNER JOIN dbo.Company_List ON dbo.Tenant_Trucks_UNREG.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=\''+query+'\' ORDER BY len(truck_number), truck_number', "S_all")
+            row = SQL_REQ("SELECT truck_number, status FROM dbo.Tenant_Trucks_UNREG INNER JOIN dbo.Company_List ON dbo.Tenant_Trucks_UNREG.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=? ORDER BY len(truck_number), truck_number", (query,), "S_all")
             for x in row:
                 dict.update({x[0]: x[1]})
             return dict
         elif func == "trailers+":
             dict = {}
-            row = SQL_REQ('SELECT trailer_number, status FROM dbo.Tenant_Trailers_UNREG INNER JOIN dbo.Company_List ON dbo.Tenant_Trailers_UNREG.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=\''+query+'\' ORDER BY len(trailer_number), trailer_number', "S_all")
+            row = SQL_REQ("SELECT trailer_number, status FROM dbo.Tenant_Trailers_UNREG INNER JOIN dbo.Company_List ON dbo.Tenant_Trailers_UNREG.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=? ORDER BY len(trailer_number), trailer_number", (query,), "S_all")
             for x in row:
                 dict.update({x[0]: x[1]})
             return dict
         elif func == "check_yard_T_T" or func == "check_yard_T_Tr" or func == "check_yard_GN_T" or func == "check_yard_GN_Tr" or func == "check_yard_GN_Fb":
             dict = list()
-            row = SQL_REQ("SELECT date, type, unit_number, status FROM dbo.check_yard WHERE company=\'"+query+"\' ORDER BY len(unit_number), unit_number", "S_all")
+            row = SQL_REQ("SELECT date, type, unit_number, status FROM dbo.check_yard WHERE company=? ORDER BY len(unit_number), unit_number", (query,), "S_all")
             for x in row:
                 dict.append([x[2], x[1], x[3], x[0], query])
             return dict
         elif func == "adm_trucks":
             dict = list()
-            row = SQL_REQ('SELECT truck_number, dbo.Company_List.company_ID FROM dbo.Tenant_Trucks INNER JOIN dbo.Company_List ON dbo.Tenant_Trucks.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=\'' + query + '\' ORDER BY len(truck_number), truck_number', "S_all")
+            row = SQL_REQ("SELECT truck_number, dbo.Company_List.company_ID FROM dbo.Tenant_Trucks INNER JOIN dbo.Company_List ON dbo.Tenant_Trucks.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=? ORDER BY len(truck_number), truck_number", (query), "S_all")
             for x in row: dict.append([x[0], x[1], "REG"])
             return dict
         elif func == "adm_trailers":
             dict = list()
-            row = SQL_REQ('SELECT trailer_number, dbo.Company_List.company_ID FROM dbo.Tenant_Trailers INNER JOIN dbo.Company_List ON dbo.Tenant_Trailers.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=\''+query+'\' ORDER BY len(trailer_number), trailer_number', "S_all")
+            row = SQL_REQ("SELECT trailer_number, dbo.Company_List.company_ID FROM dbo.Tenant_Trailers INNER JOIN dbo.Company_List ON dbo.Tenant_Trailers.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=? ORDER BY len(trailer_number), trailer_number", (query), "S_all")
             for x in row: dict.append([x[0], x[1], "REG"])
             return dict
         elif func == "adm_trucks+":
             dict = list()
-            row = SQL_REQ('SELECT truck_number, dbo.Company_List.company_ID FROM dbo.Tenant_Trucks_UNREG INNER JOIN dbo.Company_List ON dbo.Tenant_Trucks_UNREG.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=\'' + query + '\' ORDER BY len(truck_number), truck_number', "S_all")
+            row = SQL_REQ("SELECT truck_number, dbo.Company_List.company_ID FROM dbo.Tenant_Trucks_UNREG INNER JOIN dbo.Company_List ON dbo.Tenant_Trucks_UNREG.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=? ORDER BY len(truck_number), truck_number", (query), "S_all")
             for x in row: dict.append([x[0], x[1], "UNREG"])
             return dict
         elif func == "adm_trailers+":
             dict = list()
-            row = SQL_REQ('SELECT trailer_number, dbo.Company_List.company_ID FROM dbo.Tenant_Trailers_UNREG INNER JOIN dbo.Company_List ON dbo.Tenant_Trailers_UNREG.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=\''+query+'\' ORDER BY len(trailer_number), trailer_number', "S_all")
+            row = SQL_REQ("SELECT trailer_number, dbo.Company_List.company_ID FROM dbo.Tenant_Trailers_UNREG INNER JOIN dbo.Company_List ON dbo.Tenant_Trailers_UNREG.company_ID=dbo.Company_List.company_ID WHERE dbo.Company_List.company_name=? ORDER BY len(trailer_number), trailer_number", (query), "S_all")
             for x in row: dict.append([x[0], x[1], "UNREG"])
             return dict
+        # funct for output data from Tenant SQL in format dict {Company_Name: {trucks:list(unit_number, date, status...), trailers:list(unit_number, date, status...)}, ... }
+        elif func == "tenant_by_comp":
+            company_list = units_lst("company", "D")
+            company_list.sort()
+            dict = dict()
+            for comp_id in company_list:
+                trucks = SQL_REQ("SELECT * FROM dbo.Tenant_Trucks WHERE dbo.Company_List", (), "S_all")
+                dict[comp_name] ={}
+            #
+            #
+            #
+            #
+            #
+            #
+            #
+            #
+            # func to get data from sql in format dict company: dict truck: list(unit, date, status...), trailer: list(unit, date, status...)
+
+
+
+
+
+
+
+
+
+
 
 #HOVER OFF FUNCTION - RETURN ORIGINAL BG COLOR IF NOT CLICKED
 def Hover_Off(obj, var, current_select):
@@ -2526,12 +2557,12 @@ def UNTS(obj, var, func):
             Adm_Unit_obj = obj
             Adm_Trailer_Var = var
         adm_storage_checkbox.pack(side=tk.TOP, anchor=tk.W, padx=5, pady=15)
-        val = SQL_REQ('SELECT company_ID FROM dbo.Company_List WHERE company_name=\'' + Adm_Company_Var + '\'', "S_one")
+        val = SQL_REQ("SELECT company_ID FROM dbo.Company_List WHERE company_name=?", (Adm_Company_Var,), "S_one")
         if val: ID = str(val[0])
         if Adm_Trailer_Var[2] == "REG":
-            check = SQL_REQ("SELECT storage FROM dbo.Tenant_Trailers WHERE company_ID=\'" + ID + "\' AND trailer_number=\'" + Adm_Trailer_Var[0] + "\'", "S_one")
+            check = SQL_REQ("SELECT storage FROM dbo.Tenant_Trailers WHERE company_ID=? AND trailer_number=?", (ID, Adm_Trailer_Var[0]), "S_one")
         elif Adm_Trailer_Var[2] == "UNREG":
-            check = SQL_REQ("SELECT storage FROM dbo.Tenant_Trailers_UNREG WHERE company_ID=\'" + ID + "\' AND trailer_number=\'" + Adm_Trailer_Var[0] + "\'", "S_one")
+            check = SQL_REQ("SELECT storage FROM dbo.Tenant_Trailers_UNREG WHERE company_ID=? AND trailer_number=?", (ID, Adm_Trailer_Var[0]), "S_one")
         if check[0] is True: st = 1
         else: st = 0
         adm_storage_var.set(st)
@@ -2625,34 +2656,34 @@ def UNTS(obj, var, func):
         Current_Adm_Visitor_Unit = None
 
 def chk_set(var, *args):
-    request = SQL_REQ("SELECT * FROM dbo.check_yard WHERE company=\'"+var[4]+"\' AND unit_number=\'"+var[0]+"\' AND type=\'"+var[1]+"\'", "S_one")
+    request = SQL_REQ("SELECT * FROM dbo.check_yard WHERE company=? AND unit_number=? AND type=?", (var[4], var[0], var[1]), "S_one")
     if request is not None:
         if len(args)>0:
-            if args[0] == "DEL": SQL_REQ("DELETE FROM dbo.check_yard WHERE company=\'"+var[4]+"\' AND unit_number=\'"+var[0]+"\'AND type=\'"+var[1]+"\'", "D")
-        else: SQL_REQ(["UPDATE dbo.check_yard SET status=? WHERE company=\'"+var[4]+"\' AND unit_number=\'"+var[0]+"\' AND type=\'"+var[1]+"\'", var[2]], "U_D")
+            if args[0] == "DEL": SQL_REQ("DELETE FROM dbo.check_yard WHERE company=? AND unit_number=? AND type=?", (var[4], var[0], var[1]), "W")
+        else: SQL_REQ("UPDATE dbo.check_yard SET status=? WHERE company=? AND unit_number=? AND type=?", (var[2], var[4], var[0], var[1]), "W")
     else:
         if len(args)>0:
             if args[0] == "DEL": error(11)
-        else: SQL_REQ(["INSERT INTO dbo.check_yard (date,company,type,unit_number,status) VALUES (?,?,?,?,?)", (var[3].strftime("%Y-%m-%d %H:%M:%S"), var[4], var[1], var[0], var[2])], "I_D")
+        else: SQL_REQ("INSERT INTO dbo.check_yard (date,company,type,unit_number,status) VALUES (?,?,?,?,?)", (var[3].strftime("%Y-%m-%d %H:%M:%S"), var[4], var[1], var[0], var[2]), "W")
 
 ###RECORD INFO IN TXT FILE - TEMP to replace on SQL
 def Tenant_Record(record):
     global security
-    val = SQL_REQ('SELECT company_ID FROM dbo.Company_List WHERE company_name=\''+record["Company"]+'\'', "S_all")
+    val = SQL_REQ("SELECT company_ID FROM dbo.Company_List WHERE company_name=?", (record["Company"],), "S_all")
     if val:
         for v in val: _id = str(v[0])
     else: _id = "999"
     event_date = str(datetime.strptime(record["Date"]+" "+record["Time"],'%Y/%m/%d %H:%M:%S'))
     record_val = [_id, record["Truck"], record["Trailer"], event_date, record["Status"], record["Comment"], security[0]]
-    SQL_REQ(['INSERT INTO dbo.Tenant_History(company_ID, truck_number, trailer_number, datetime_event, status, comment, full_name) VALUES (?,?,?,?,?,?,?)', record_val], "I_D")
-    Tsts = SQL_REQ('SELECT status FROM dbo.Tenant_Trucks WHERE company_ID=\'' + _id + '\' AND truck_number=\'' + str(record["Truck"]) + '\'', "S_all")
+    SQL_REQ("INSERT INTO dbo.Tenant_History(company_ID, truck_number, trailer_number, datetime_event, status, comment, full_name) VALUES (?,?,?,?,?,?,?)", record_val, "W")
+    Tsts = SQL_REQ("SELECT status FROM dbo.Tenant_Trucks WHERE company_ID=? AND truck_number=?", (_id, str(record["Truck"])),  "S_all")
     if Tsts:
         for w in Tsts: truck_status = str(w[0])
     else:
         truck_status = None
         Tenant_Register_UNREG(_id, record["Truck"], record["Status"], event_date, "truck")  ### function of adding unknown TRUCK in UNREG table
     if record["Trailer"] is not None:
-        TRsts = SQL_REQ('SELECT status FROM dbo.Tenant_Trailers WHERE company_ID=\'' + _id + '\' AND trailer_number=\'' + record["Trailer"] + '\'', "S_all")
+        TRsts = SQL_REQ("SELECT status FROM dbo.Tenant_Trailers WHERE company_ID=? AND trailer_number=?", (_id, record["Trailer"]), "S_all")
         if TRsts:
             for w in TRsts: trailer_status = str(w[0])
         else:
@@ -2661,12 +2692,12 @@ def Tenant_Record(record):
     else: trailer_status = None
     if record["Status"] is True:
         if truck_status is True: pass # function to investigate who fucked up
-        if truck_status is not None: SQL_REQ('UPDATE dbo.Tenant_Trucks SET status=1, last_date=\''+event_date+'\' WHERE company_ID=\'' + _id + '\' AND truck_number=\'' + record["Truck"] + '\'', "D")
-        if trailer_status is not None: SQL_REQ('UPDATE dbo.Tenant_Trailers SET status=1, last_date=\''+event_date+'\' WHERE company_ID=\'' + _id + '\' AND trailer_number=\'' + record["Trailer"] + '\'', "D")
+        if truck_status is not None: SQL_REQ("UPDATE dbo.Tenant_Trucks SET status=1, last_date=? WHERE company_ID=? AND truck_number=?", (event_date, _id, record["Truck"]), "W")
+        if trailer_status is not None: SQL_REQ("UPDATE dbo.Tenant_Trailers SET status=1, last_date=? WHERE company_ID=? AND trailer_number=?", (event_date, _id, record["Trailer"]), "W")
     else:
         if truck_status is False: pass  # function to investigate who fucked up
-        if truck_status is not None: SQL_REQ('UPDATE dbo.Tenant_Trucks SET status=0, last_date=\''+event_date+'\'  WHERE company_ID=\'' + _id + '\' AND truck_number=\'' + record["Truck"] + '\'', "D")
-        if trailer_status is not None: SQL_REQ('UPDATE dbo.Tenant_Trailers SET status=0, last_date=\''+event_date+'\' WHERE company_ID=\'' + _id + '\' AND trailer_number=\'' + record["Trailer"] + '\'', "D")
+        if truck_status is not None: SQL_REQ("UPDATE dbo.Tenant_Trucks SET status=0, last_date=?  WHERE company_ID=? AND truck_number=?", (event_date, _id, record["Truck"]), "W")
+        if trailer_status is not None: SQL_REQ("UPDATE dbo.Tenant_Trailers SET status=0, last_date=? WHERE company_ID=? AND trailer_number=?", (event_date, _id, record["Trailer"]), "W")
     OVERPARKING(record, "T")
 
 
@@ -2685,19 +2716,19 @@ def GN_Record(record):
     if record["Type"] is None and record["Trailer"] !="":
         record_val = [record["Company"], record["Truck"], record["Trailer"], fb, event_date, record["Cargo"], record["Status"], record["Comment"], security[0]]
     else: record_val = [record["Company"], record["Truck"], trailer, fb, event_date, record["Cargo"], record["Status"], record["Comment"], security[0]]
-    SQL_REQ(['INSERT INTO dbo.GN_History(company_name, truck_number, trailer_number, fb_number, datetime_event, cargo, status, comment, full_name) VALUES (?,?,?,?,?,?,?,?,?)', record_val], "I_D")
+    SQL_REQ("INSERT INTO dbo.GN_History(company_name, truck_number, trailer_number, fb_number, datetime_event, cargo, status, comment, full_name) VALUES (?,?,?,?,?,?,?,?,?)", record_val, "W")
     if record["Company"] == "GN":
-        GNT = SQL_REQ('SELECT status FROM dbo.GN_Trucks WHERE truck_number=\'' + str(record["Truck"]) + '\'', "S_all")
+        GNT = SQL_REQ("SELECT status FROM dbo.GN_Trucks WHERE truck_number=?", (str(record["Truck"]),), "S_all")
         if GNT:
             for w in GNT: truck_status = w[0]
             if record["Status"]:
                 if truck_status is not None:
                     if truck_status: pass   # function to investigate who fucked up
-                SQL_REQ('UPDATE dbo.GN_Trucks SET status=1, last_date=\'' + event_date + '\' WHERE truck_number=\'' + record["Truck"] + '\'', "D")
+                SQL_REQ("UPDATE dbo.GN_Trucks SET status=1, last_date=? WHERE truck_number=?", (event_date, record["Truck"]), "W")
             else:
                 if truck_status is not None:
                     if not truck_status: pass   # function to investigate who fucked up
-                SQL_REQ('UPDATE dbo.GN_Trucks SET status=0, last_date=\'' + event_date + '\' WHERE truck_number=\'' + record["Truck"] + '\'', "D")
+                SQL_REQ("UPDATE dbo.GN_Trucks SET status=0, last_date=? WHERE truck_number=?", (event_date, record["Truck"]), "W")
         else:
             #
             # #<================
@@ -2712,62 +2743,62 @@ def GN_Record(record):
             pass# <== NO TRUCK IN GN LIST - error
 
         if trailer is not None:
-            GNTr = SQL_REQ('SELECT status FROM dbo.GN_Trailers WHERE trailer_number=\'' + trailer + '\'', "S_all")
+            GNTr = SQL_REQ("SELECT status FROM dbo.GN_Trailers WHERE trailer_number=?", (trailer,), "S_all")
             if GNTr:
                 for x in GNTr: trailer_status = x[0]
                 if record["Status"]:
                     if trailer_status is not None:
                         if trailer_status: pass # function to invest who facuked up
-                    SQL_REQ('UPDATE dbo.GN_Trailers SET status=1, last_date=\'' + event_date + '\', LU=\'' + str(record["Cargo"]) + '\' WHERE trailer_number=\'' + trailer + '\'', "D")
+                    SQL_REQ("UPDATE dbo.GN_Trailers SET status=1, last_date=?, LU=? WHERE trailer_number=?", (event_date, str(record["Cargo"]), trailer), "W")
                 else:
                     if trailer_status is not None:
                         if not trailer_status: pass # function to invest who facuked up
-                    SQL_REQ('UPDATE dbo.GN_Trailers SET status=0, storage=0, last_date=\'' + event_date + '\', LU=0 WHERE trailer_number=\'' + trailer + '\'', "D")
+                    SQL_REQ("UPDATE dbo.GN_Trailers SET status=0, storage=0, last_date=?, LU=0 WHERE trailer_number=?", (event_date, trailer), "W")
             else: pass #<==== NO TRAILER IN GN LIST - error
         elif fb is not None:
-            GNFb = SQL_REQ('SELECT status FROM dbo.GN_Flatbed WHERE fb_number=\'' + fb + '\'', "S_all")
+            GNFb = SQL_REQ("SELECT status FROM dbo.GN_Flatbed WHERE fb_number=?", (fb,), "S_all")
             if GNFb:
                 for x in GNFb: fb_status = x[0]
                 if record["Status"]:
                     if fb_status is not None:
                             if fb_status: pass  # function to invest who facuked up
-                    SQL_REQ('UPDATE dbo.GN_Flatbed SET status=1, last_date=\'' + event_date + '\', LU=\'' + str(record["Cargo"]) + '\' WHERE fb_number=\'' + fb + '\'', "D")
+                    SQL_REQ("UPDATE dbo.GN_Flatbed SET status=1, last_date=?, LU=? WHERE fb_number=?", (event_date, str(record["Cargo"]), fb), "W")
                 else:
                     if fb_status is not None:
                         if not fb_status: pass  # function to invest who facuked up
-                    SQL_REQ('UPDATE dbo.GN_Flatbed SET status=0, storage=0, last_date=\'' + event_date + '\', LU=0 WHERE fb_number=\'' + fb + '\'', "D")
+                    SQL_REQ("UPDATE dbo.GN_Flatbed SET status=0, storage=0, last_date=?, LU=0 WHERE fb_number=?", (event_date, fb), "W")
             else: pass  # <==== NO TRAILER IN GN LIST - error
         else: pass # <=== function for absent GN trailer
     elif record["Company"] == "WT":
         if trailer is not None:
-            GNTr = SQL_REQ('SELECT status FROM dbo.GN_Trailers WHERE trailer_number=\'' + trailer + '\'', "S_all")
+            GNTr = SQL_REQ("SELECT status FROM dbo.GN_Trailers WHERE trailer_number=?", (trailer,), "S_all")
             if GNTr:
                 for x in GNTr: trailer_status = x[0]
                 if record["Status"]:
                     if trailer_status is not None:
                         if trailer_status: pass  # function to invest who facuked up
-                    SQL_REQ('UPDATE dbo.GN_Trailers SET status=1, last_date=\'' + event_date + '\', LU=\'' + str(record["Cargo"]) + '\' WHERE trailer_number=\'' + trailer + '\'', "D")
+                    SQL_REQ("UPDATE dbo.GN_Trailers SET status=1, last_date=?, LU=? WHERE trailer_number=?", (event_date, str(record["Cargo"]), trailer), "W")
                 else:
                     if trailer_status is not None:
                         if not trailer_status: pass  # function to invest who facuked up
-                    SQL_REQ('UPDATE dbo.GN_Trailers SET status=0, storage=0, last_date=\'' + event_date + '\', LU=0 WHERE trailer_number=\'' + trailer + '\'', "D")
+                    SQL_REQ("UPDATE dbo.GN_Trailers SET status=0, storage=0, last_date=?, LU=0 WHERE trailer_number=?", (event_date, trailer), "W")
             else: pass  # <==== NO TRAILER IN GN LIST - error
         elif fb is not None:
-            GNFb = SQL_REQ('SELECT status FROM dbo.GN_Flatbed WHERE fb_number=\'' + fb + '\'', "S_all")
+            GNFb = SQL_REQ("SELECT status FROM dbo.GN_Flatbed WHERE fb_number=?", (fb,),"S_all")
             if GNFb:
                 for x in GNFb: fb_status = x[0]
                 if record["Status"]:
                     if fb_status is not None:
                         if fb_status: pass  # function to invest who facuked up
-                    SQL_REQ('UPDATE dbo.GN_Flatbed SET status=1, last_date=\'' + event_date + '\', LU=\'' + str(record["Cargo"]) + '\' WHERE fb_number=\'' + fb + '\'', "D")
+                    SQL_REQ("UPDATE dbo.GN_Flatbed SET status=1, last_date=?, LU=? WHERE fb_number=?", (event_date, str(record["Cargo"]), fb), "W")
                 else:
                     if fb_status is not None:
                         if not fb_status: pass  # function to invest who facuked up
-                    SQL_REQ('UPDATE dbo.GN_Flatbed SET status=0, storage=0, last_date=\'' + event_date + '\', LU=0 WHERE fb_number=\'' + fb + '\'', "D")
+                    SQL_REQ("UPDATE dbo.GN_Flatbed SET status=0, storage=0, last_date=?, LU=0 WHERE fb_number=?", (event_date, fb), "W")
             else: pass  # <==== NO TRAILER IN GN LIST - error
         else: pass  # <=== function for absent GN trailer
     else:
-        check_company = SQL_REQ('SELECT company_ID FROM dbo.Company_List WHERE company_name=\'' + record["Company"] + '\'', "S_one")
+        check_company = SQL_REQ("SELECT company_ID FROM dbo.Company_List WHERE company_name=?", (record["Company"],), "S_one")
         if check_company:
             c_ID = check_company[0]
         else:
@@ -2776,56 +2807,55 @@ def GN_Record(record):
             return
         if record["Status"] is True:
             if c_ID is not None:
-                check_truck = SQL_REQ("SELECT status FROM dbo.Tenant_Trucks WHERE truck_number=\'" + record["Truck"] + "\' AND company_ID=\'"+str(c_ID)+"\'", "S_one")
+                check_truck = SQL_REQ("SELECT status FROM dbo.Tenant_Trucks WHERE truck_number=? AND company_ID=?", (record["Truck"], str(c_ID)), "S_one")
                 if check_truck:
                     if check_truck[0]: pass # function to invest who facuked up
-                    SQL_REQ("UPDATE dbo.Tenant_Trucks SET status=1, last_date=\'" + event_date + "\' WHERE truck_number=\'" + record["Truck"] + "\' AND company_ID=\'"+str(c_ID)+"\'", "D")
+                    SQL_REQ("UPDATE dbo.Tenant_Trucks SET status=1, last_date=? WHERE truck_number=? AND company_ID=?", (event_date, record["Truck"], str(c_ID)), "W")
                 else:
-                    check_truck = SQL_REQ("SELECT status FROM dbo.Tenant_Trucks_UNREG WHERE truck_number=\'" + record["Truck"] + "\' AND company_ID=\'" + str(c_ID) + "\'", "S_one")
+                    check_truck = SQL_REQ("SELECT status FROM dbo.Tenant_Trucks_UNREG WHERE truck_number=? AND company_ID=?", (record["Truck"], str(c_ID)), "S_one")
                     if check_truck:
                         if check_truck[0]: pass  # function to invest who facuked up
-                        SQL_REQ("UPDATE dbo.Tenant_Trucks_UNREG SET status=1, last_date=\'" + event_date + "\' WHERE truck_number=\'" + record["Truck"] + "\' AND company_ID=\'" + str(c_ID) + "\'", "D")
+                        SQL_REQ("UPDATE dbo.Tenant_Trucks_UNREG SET status=1, last_date=? WHERE truck_number=? AND company_ID=?", (event_date, record["Truck"], str(c_ID)), "W")
                     else:
                         Tenant_Register_UNREG(c_ID, record["Truck"], record["Status"], event_date, "truck")
 
             if trailer is not None:
-                GNTr = SQL_REQ('SELECT status FROM dbo.GN_Trailers WHERE trailer_number=\'' + trailer + '\'', "S_one")
+                GNTr = SQL_REQ("SELECT status FROM dbo.GN_Trailers WHERE trailer_number=?", (trailer,), "S_one")
                 if GNTr is not None:
                     trailer_status = GNTr[0]
                     if trailer_status: pass  # function to invest who facuked up
-                    SQL_REQ('UPDATE dbo.GN_Trailers SET status=1, last_date=\'' + event_date + '\', LU=\'' + str(record["Cargo"]) + '\' WHERE trailer_number=\'' + trailer + '\'', "D")
+                    SQL_REQ("UPDATE dbo.GN_Trailers SET status=1, last_date=?, LU=? WHERE trailer_number=?", (event_date, str(record["Cargo"]), trailer), "W")
             elif fb is not None:
-                GNFb = SQL_REQ('SELECT status FROM dbo.GN_Flatbed WHERE fb_number=\'' + fb + '\'', "S_all")
+                GNFb = SQL_REQ("SELECT status FROM dbo.GN_Flatbed WHERE fb_number=?", (fb,), "S_all")
                 if GNFb is not None:
                     fb_status = GNFb[0]
                     if fb_status: pass  # function to invest who facuked up
-                    SQL_REQ('UPDATE dbo.GN_Flatbed SET status=1, last_date=\'' + event_date + '\', LU=\'' + str(record["Cargo"]) + '\' WHERE fb_number=\'' + fb + '\'', "D")
+                    SQL_REQ("UPDATE dbo.GN_Flatbed SET status=1, last_date=?, LU=? WHERE fb_number=?", (event_date, str(record["Cargo"]), fb), "W")
         else:
             if c_ID is not None:
-                check_truck = SQL_REQ("SELECT status FROM dbo.Tenant_Trucks WHERE truck_number=\'" + record["Truck"] + "\' AND company_ID=\'"+str(c_ID)+"\'", "S_one")
+                check_truck = SQL_REQ("SELECT status FROM dbo.Tenant_Trucks WHERE truck_number=? AND company_ID=?", (record["Truck"], str(c_ID)), "S_one")
                 if check_truck is not None:
                     if not check_truck[0]: pass # function to invest who facuked up
-                    SQL_REQ("UPDATE dbo.Tenant_Trucks SET status=0, last_date=\'" + event_date + "\' WHERE truck_number=\'" + record["Truck"] + "\' AND company_ID=\'"+str(c_ID)+"\'", "D")
+                    SQL_REQ("UPDATE dbo.Tenant_Trucks SET status=0, last_date=? WHERE truck_number=? AND company_ID=?", (event_date, record["Truck"], str(c_ID)), "W")
                 else:
-                    check_truck = SQL_REQ("SELECT status FROM dbo.Tenant_Trucks_UNREG WHERE truck_number=\'" + record["Truck"] + "\' AND company_ID=\'" + str(c_ID) + "\'", "S_one")
+                    check_truck = SQL_REQ("SELECT status FROM dbo.Tenant_Trucks_UNREG WHERE truck_number=? AND company_ID=?", (record["Truck"], str(c_ID)), "S_one")
                     if check_truck is not None:
                         if not check_truck[0]: pass  # function to invest who facuked up
-                        SQL_REQ("UPDATE dbo.Tenant_Trucks_UNREG SET status=0, last_date=\'" + event_date + "\' WHERE truck_number=\'" + record["Truck"] + "\' AND company_ID=\'" + str(c_ID) + "\'", "D")
+                        SQL_REQ("UPDATE dbo.Tenant_Trucks_UNREG SET status=0, last_date=? WHERE truck_number=? AND company_ID=?", (event_date, record["Truck"], str(c_ID)), "W")
                     else:
                         Tenant_Register_UNREG(c_ID, record["Truck"], record["Status"], event_date, "truck")
-
             if trailer is not None:
-                GNTr = SQL_REQ('SELECT status FROM dbo.GN_Trailers WHERE trailer_number=\'' + trailer + '\'', "S_one")
+                GNTr = SQL_REQ("SELECT status FROM dbo.GN_Trailers WHERE trailer_number=?", (trailer,), "S_one")
                 if GNTr is not None:
                     trailer_status = GNTr[0]
                     if not trailer_status: pass  # function to invest who facuked up
-                    SQL_REQ('UPDATE dbo.GN_Trailers SET status=0, storage=0, last_date=\'' + event_date + '\', LU=\'' + str(record["Cargo"]) + '\' WHERE trailer_number=\'' + trailer + '\'', "D")
+                    SQL_REQ("UPDATE dbo.GN_Trailers SET status=0, storage=0, last_date=?, LU=0 WHERE trailer_number=?", (event_date, trailer), "W")
             elif fb is not None:
-                GNFb = SQL_REQ('SELECT status FROM dbo.GN_Flatbed WHERE fb_number=\'' + fb + '\'', "S_all")
+                GNFb = SQL_REQ("SELECT status FROM dbo.GN_Flatbed WHERE fb_number=?", (fb,), "S_all")
                 if GNFb is not None:
                     fb_status = GNFb[0]
                     if not fb_status: pass  # function to invest who facuked up
-                    SQL_REQ('UPDATE dbo.GN_Flatbed SET status=0, storage=0, last_date=\'' + event_date + '\', LU=\'' + str(record["Cargo"]) + '\' WHERE fb_number=\'' + fb + '\'', "D")
+                    SQL_REQ("UPDATE dbo.GN_Flatbed SET status=0, storage=0, last_date=?, LU=0 WHERE fb_number=?", (event_date, fb), "W")
 
 
     OVERPARKING(record, "GN")
@@ -2843,27 +2873,27 @@ def GN_Record(record):
 def VIS_Record(record):
     global security
     event_date = str(datetime.strptime(record["Date"] + " " + record["Time"], '%Y/%m/%d %H:%M:%S'))
-    val = SQL_REQ('SELECT company_ID FROM dbo.Company_List WHERE company_name=\''+record["Company"]+'\'', "S_one")
+    val = SQL_REQ("SELECT company_ID FROM dbo.Company_List WHERE company_name=?", (record["Company"],), "S_one")
     if val is not None:
-        for v in val: _id = str(v)
-        Vsts = SQL_REQ('SELECT status FROM dbo.visitors WHERE plates=\'' + record["Plate"] + '\'', "S_one")
+        _id = str(val[0])
+        Vsts = SQL_REQ("SELECT status FROM dbo.visitors WHERE plates=?", (record["Plate"]), "S_one")
         if Vsts:
-            for w in Vsts: V_status = str(w)
+            V_status = str(Vsts[0])
         else:
             V_status = None
             Vis_Register_UNREG(_id, record["Plate"], record["Car"], record["Name"], event_date, record["Status"])
         if record["Status"] is True:
             if V_status is True: pass  # function to investigate who fucked up
             if V_status is not None:
-                SQL_REQ('UPDATE dbo.visitors SET status=1, last_date=\'' + event_date + '\' WHERE plates=\'' + record["Plate"] + '\'', "D")
+                SQL_REQ("UPDATE dbo.visitors SET status=1, last_date=? WHERE plates=?", (event_date, record["Plate"]), "W")
         else:
             if V_status is False: pass  # function to investigate who fucked up
             if V_status is not None:
-                SQL_REQ('UPDATE dbo.visitors SET status=0, last_date=NULL WHERE plates=\'' + record["Plate"] + '\'', "D")
+                SQL_REQ("UPDATE dbo.visitors SET status=0, last_date=NULL WHERE plates=?", (record["Plate"],), "W")
     else: _id = "999"
 
     record_val = [_id, record["Plate"], record["Car"], record["Name"], event_date, record["Status"], record["Comment"], security[0]]
-    SQL_REQ(['INSERT INTO dbo.visitors_history(company_ID, plates,  car_model, driver_name, datetime_event, status, comment, full_name) VALUES (?,?,?,?,?,?,?,?)', record_val], "I_D")
+    SQL_REQ("INSERT INTO dbo.visitors_history(company_ID, plates,  car_model, driver_name, datetime_event, status, comment, full_name) VALUES (?,?,?,?,?,?,?,?)", record_val, "W")
 
     OVERPARKING(record, "V")
 
@@ -3230,7 +3260,7 @@ def Parking_Menu_Hover_Off(event):
 #GETTING HISTORY FROM SQL
 def H_receive(tab):
     if tab == 1:
-        row, col = SQL_REQ("SELECT * FROM dbo.Tenant_History WHERE day(datetime_event)=day(GETDATE()) AND MONTH(datetime_event) = MONTH(GETDATE()) AND YEAR(datetime_event) = YEAR(GETDATE()) ORDER BY datetime_event", "S_all_D")
+        row, col = SQL_REQ("SELECT * FROM dbo.Tenant_History WHERE day(datetime_event)=day(GETDATE()) AND MONTH(datetime_event) = MONTH(GETDATE()) AND YEAR(datetime_event) = YEAR(GETDATE()) ORDER BY datetime_event", (), "S_all_D")
         l = []
         for x in range(len(row)):
             a = {}
@@ -3242,7 +3272,7 @@ def H_receive(tab):
             l.append(a)
         return l
     elif tab == 2:
-        row, col = SQL_REQ("SELECT * FROM dbo.GN_History WHERE day(datetime_event)=day(GETDATE()) AND MONTH(datetime_event) = MONTH(GETDATE()) AND YEAR(datetime_event) = YEAR(GETDATE()) ORDER BY datetime_event", "S_all_D")
+        row, col = SQL_REQ("SELECT * FROM dbo.GN_History WHERE day(datetime_event)=day(GETDATE()) AND MONTH(datetime_event) = MONTH(GETDATE()) AND YEAR(datetime_event) = YEAR(GETDATE()) ORDER BY datetime_event", (), "S_all_D")
         l = []
         for x in range(len(row)):
             a = {}
@@ -3254,7 +3284,7 @@ def H_receive(tab):
             l.append(a)
         return l
     elif tab == 3:
-        row, col =SQL_REQ("SELECT * FROM dbo.visitors_history WHERE day(datetime_event)=day(GETDATE()) AND MONTH(datetime_event) = MONTH(GETDATE()) AND YEAR(datetime_event) = YEAR(GETDATE()) ORDER BY datetime_event", "S_all_D")
+        row, col =SQL_REQ("SELECT * FROM dbo.visitors_history WHERE day(datetime_event)=day(GETDATE()) AND MONTH(datetime_event) = MONTH(GETDATE()) AND YEAR(datetime_event) = YEAR(GETDATE()) ORDER BY datetime_event", (), "S_all_D")
         l = []
         for x in range(len(row)):
             a = {}
@@ -3272,7 +3302,7 @@ def H_insert(masta, tab):
         history_list = H_receive(tab)
         for i in range(len(history_list)):
             record = history_list[i]
-            obj = SQL_REQ('SELECT company_name FROM dbo.Company_List WHERE dbo.Company_List.company_ID=\''+str(record['company_ID'])+'\'', "S_one")
+            obj = SQL_REQ("SELECT company_name FROM dbo.Company_List WHERE dbo.Company_List.company_ID=?", (str(record['company_ID']),), "S_one")
             for x in obj: name=x
             frame = tk.Frame(masta, highlightthickness=0, bg=conf["window_bg"])
             frame.pack(side=tk.TOP, fill=tk.X, pady=(1, 0))
@@ -3343,7 +3373,7 @@ def H_insert(masta, tab):
         history_list = H_receive(tab)
         for i in range(len(history_list)):
             record = history_list[i]
-            for x in SQL_REQ('SELECT company_name FROM dbo.Company_List WHERE dbo.Company_List.company_ID=\'' + str( record['company_ID']) + '\'', "S_one"): name = x
+            for x in SQL_REQ("SELECT company_name FROM dbo.Company_List WHERE dbo.Company_List.company_ID=?", (str( record['company_ID']),), "S_one"): name = x
             frame = tk.Frame(masta, highlightthickness=0, bg=conf["window_bg"])
             frame.pack(side=tk.TOP, fill=tk.X, pady=(1, 0))
             cmpny = tk.Label(frame, text=name, bg=conf["widget_bg"], font=(conf["history_font"], conf["history_size"]), fg=conf["widget_fg"], anchor=tk.CENTER, highlightthickness=0, width=15)
@@ -4045,7 +4075,7 @@ VIS_Plates_Entry = tk.Entry(VIS_IN_OUT_Plates, bg=conf["entry_bg"], bd=0, cursor
 VIS_Plates_Entry.pack(fill=tk.BOTH, expand=0)
 VIS_Plates_Entry.bind("<KeyRelease>", lambda event: UPPER_CASE(event, obj=VIS_Plates_Entry))
 
-car_ven = SQL_REQ("SELECT Vendor FROM dbo.Car_Vendors ORDER BY Vendor", "S_all")
+car_ven = SQL_REQ("SELECT Vendor FROM dbo.Car_Vendors ORDER BY Vendor", (), "S_all")
 vendors = []
 for x in car_ven: vendors.append(x[0])
 VIS_Car_Entry = AutocompleteEntry(VIS_IN_OUT_Car, background=conf["entry_bg"], cursor="shuttle", font=(conf["entry_font"], conf["entry_size"]), foreground=conf["entry_fg"], completevalues=vendors, textvariable=VIS_Car_Var, width=1)
@@ -4385,7 +4415,7 @@ def over_preview(masta):
         if line is None or line == []: return
         OVER_Header_Frame = tk.Frame(masta.frame, bg=conf["window_bg"], highlightthickness=0)
         OVER_Header_Frame.pack(side=tk.TOP, anchor=tk.NW, fill=tk.BOTH, pady=5)
-        for x in SQL_REQ("SELECT company_name FROM dbo.Company_list WHERE company_ID=\'" + str(line[0]["company_ID"]) + "\' ORDER BY company_name", "S_one"): c_name = x
+        for x in SQL_REQ("SELECT company_name FROM dbo.Company_list WHERE company_ID=? ORDER BY company_name", (str(line[0]["company_ID"]),), "S_one"): c_name = x
         OVER_Company_Lb = tk.Label(OVER_Header_Frame, text="COMPANY:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
         OVER_Company_Lb.pack(side=tk.LEFT, fill=tk.BOTH, padx=(0, 1))
         OVER_Name_Lb = tk.Label(OVER_Header_Frame, text=c_name, bg=conf["window_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"])
@@ -4444,7 +4474,7 @@ def over_preview(masta):
     date = datetime.strptime(year + "-" + month, "%Y-%B").date()
 
     if comp == "All":
-        comp_list = SQL_REQ("SELECT company_ID FROM dbo.OVERPARKING WHERE month(date)=\'" + str(date.strftime("%m")) + "\' and year(date)=\'" + year + "\'", "S_all")
+        comp_list = SQL_REQ("SELECT company_ID FROM dbo.OVERPARKING WHERE month(date)=? and year(date)=?", (str(date.strftime("%m")), year), "S_all")
         if comp_list:
             comp_lst = set(list(x[0] for x in comp_list))
             for all in comp_lst:
@@ -4453,7 +4483,7 @@ def over_preview(masta):
             else: return
         else: return
     else:
-        comp_id = SQL_REQ("SELECT company_ID FROM dbo.Company_list WHERE company_name=\'"+comp+"\' ORDER BY company_name", "S_one")
+        comp_id = SQL_REQ("SELECT company_ID FROM dbo.Company_list WHERE company_name=? ORDER BY company_name", (comp,), "S_one")
         if comp_id:
             # c_ID = comp_id[0]
             print(int(date.strftime("%m")), int(year), comp_id[0])
@@ -4470,11 +4500,11 @@ def generate():
     date = datetime.strptime(year+"-"+month, "%Y-%B").date()
     if comp == "All":
         company_list = []
-        row = SQL_REQ("SELECT company_ID FROM dbo.Company_list WHERE activity=1 ORDER BY company_name", "S_all")
+        row = SQL_REQ("SELECT company_ID FROM dbo.Company_list WHERE activity=1 ORDER BY company_name", (), "S_all")
         for x in row: company_list.append(x[0])
         for all in set(company_list): to_Excel(date, all)
     else:
-        for x in SQL_REQ("SELECT company_ID FROM dbo.Company_list WHERE company_name=\'"+comp+"\' ORDER BY company_name", "S_one"): c_ID = x
+        for x in SQL_REQ("SELECT company_ID FROM dbo.Company_list WHERE company_name=? ORDER BY company_name", (comp,), "S_one"): c_ID = x
         to_Excel(date, c_ID)
 
 year_list = list(sets["Year_List"].split("|"))
@@ -4511,12 +4541,178 @@ over_gen_button.pack(fill=tk.BOTH, side=tk.RIGHT, padx=5, pady=5)
 ##                      GN
 ################################################################################################################################################################################
 ################################################################################################################################################################################
+def TEN_stat_insert(frame):
+    today = date.today()
+    data = get_onyard()["tenant"]
+
+    c_frame = tk.Frame(frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+    c_frame.pack(side=tk.TOP, fill=tk.X, expand=1, pady=(0, 2), padx=(2, 0))
+    truck_label = tk.Label(c_frame, text="Trucks:", bg=conf["widget_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["submenu_fg"], width=GN_screen - 2)
+    print(GN_screen)
+    truck_label.pack(side=tk.TOP, fill=tk.X, expand=1, anchor=tk.NW, padx=3, pady=3)
+    truck_frame = tk.Frame(c_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+    truck_frame.pack(side=tk.TOP, fill=tk.X, padx=3, pady=(0, 3))
+    column_names_fr = tk.Frame(truck_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+    column_names_fr.pack(side=tk.TOP, fill=tk.X, pady=(0, 3))
+    unit_lb = tk.Label(column_names_fr, text="unit number:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+    unit_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    onyard_lb = tk.Label(column_names_fr, text="on yard:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=15)
+    onyard_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    cargo_lb = tk.Label(column_names_fr, text="cargo:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=15)
+    cargo_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    storage_lb = tk.Label(column_names_fr, text="storage:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=10)
+    storage_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    date_lb = tk.Label(column_names_fr, text="on yard since:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+    date_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+    sum_lb = tk.Label(column_names_fr, text="on yard / days:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+    sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    for all in gn_truck:
+        if all["last_date"] is not None and all["status"]:
+            delta_days = (today - all["last_date"].date()).days
+        else:
+            delta_days = None
+        if all["status"]:
+            last_truck_time = all["last_date"]
+        else:
+            last_truck_time = ""
+        rec_fr = tk.Frame(truck_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+        rec_fr.pack(side=tk.TOP, anchor=tk.NW, fill=tk.X)
+        T_lb = tk.Label(rec_fr, text=all["truck_number"], bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+        T_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+        if all["status"]:
+            stateTruck = "on yard"
+        else:
+            stateTruck = ""
+        st_lb = tk.Label(rec_fr, text=stateTruck, bg=conf["window_bg"], fg=conf["on_parking"], font=(conf["header_font"], conf["notebook_tab_size"]), width=15)
+        st_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+        C_lb = tk.Label(rec_fr, text="", bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=15)
+        C_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+        str_lb = tk.Label(rec_fr, text="", bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=10)
+        str_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+        T_time_lb = tk.Label(rec_fr, text=last_truck_time, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+        T_time_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+        T_sum_lb = tk.Label(rec_fr, text=delta_days, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["status_fg"], width=20)
+        T_sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+
+    trailer_label = tk.Label(c_frame, text="Trailers:", bg=conf["widget_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["submenu_fg"], width=GN_screen - 2)
+    trailer_label.pack(side=tk.TOP, fill=tk.X, expand=1, anchor=tk.NW, padx=3, pady=3)
+    trailer_frame = tk.Frame(c_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+    trailer_frame.pack(side=tk.TOP, fill=tk.X, padx=3, pady=(0, 3))
+    column_names_fr2 = tk.Frame(trailer_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+    column_names_fr2.pack(side=tk.TOP, fill=tk.X, pady=(0, 3))
+    unitT_lb = tk.Label(column_names_fr2, text="unit number:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+    unitT_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    onyardT_lb = tk.Label(column_names_fr2, text="on yard:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=15)
+    onyardT_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    cargo_t_lb = tk.Label(column_names_fr2, text="cargo:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=15)
+    cargo_t_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    st_t_lb = tk.Label(column_names_fr2, text="storage:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=10)
+    st_t_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    dateT_lb = tk.Label(column_names_fr2, text="on yard since:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+    dateT_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+    sumT_lb = tk.Label(column_names_fr2, text="on yard / days", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+    sumT_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    for all in gn_trailer:
+        if all["last_date"] is not None and all["status"]:
+            delta_days = (today - all["last_date"].date()).days
+        else:
+            delta_days = None
+        if all["status"]:
+            last_trailer_time = all["last_date"]
+        else:
+            last_trailer_time = ""
+        recT_fr = tk.Frame(trailer_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+        recT_fr.pack(side=tk.TOP, anchor=tk.NW, fill=tk.X)
+        Tt_lb = tk.Label(recT_fr, text=all["trailer_number"], bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+        Tt_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+        if all["status"]:
+            stateT = "on yard"
+        else:
+            stateT = ""
+        onyard_T_lb = tk.Label(recT_fr, text=stateT, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["on_parking"], width=15)
+        onyard_T_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+        if all["LU"]:
+            cargo = "LOADED"
+            fgTLU = conf["func_button_fg"]
+        else:
+            cargo = "EMPTY"
+            fgTLU = conf["func_button_sel_fg"]
+        tC_lb = tk.Label(recT_fr, text=cargo, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=fgTLU, width=15)
+        tC_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+        if all["storage"]:
+            strg = "storage"
+        else:
+            strg = ""
+        strT_lb = tk.Label(recT_fr, text=strg, bg=conf["window_bg"], fg=conf["storage_fg"], font=(conf["header_font"], conf["notebook_tab_size"]), width=10)
+        strT_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+        Tt_time_lb = tk.Label(recT_fr, text=last_trailer_time, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+        Tt_time_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+        Tt_sum_lb = tk.Label(recT_fr, text=delta_days, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["status_fg"], width=20)
+        Tt_sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+
+    fb_label = tk.Label(c_frame, text="Flatbeds:", bg=conf["widget_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["submenu_fg"], width=GN_screen - 2)
+    fb_label.pack(side=tk.TOP, fill=tk.X, expand=1, anchor=tk.NW, padx=3, pady=3)
+    fb_frame = tk.Frame(c_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+    fb_frame.pack(side=tk.TOP, fill=tk.X, padx=3, pady=(0, 3))
+    column_names_fr3 = tk.Frame(fb_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+    column_names_fr3.pack(side=tk.TOP, fill=tk.X, pady=(0, 3))
+    unitf_lb = tk.Label(column_names_fr3, text="unit number:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+    unitf_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    onyardFb_lb = tk.Label(column_names_fr3, text="on yard:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=15)
+    onyardFb_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    cargo_f_lb = tk.Label(column_names_fr3, text="cargo:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=15)
+    cargo_f_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    stFb_f_lb = tk.Label(column_names_fr3, text="storage:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=10)
+    stFb_f_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    datef_lb = tk.Label(column_names_fr3, text="on yard since:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+    datef_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+    sumf_lb = tk.Label(column_names_fr3, text="on yard / days", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+    sumf_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+    for all in gn_fb:
+        if all["last_date"] is not None and all["status"]:
+            delta_days = (today - all["last_date"].date()).days
+        else:
+            delta_days = None
+        if all["status"]:
+            last_fb_time = all["last_date"]
+        else:
+            last_fb_time = ""
+        recf_fr = tk.Frame(fb_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+        recf_fr.pack(side=tk.TOP, anchor=tk.NW, fill=tk.X)
+        f_lb = tk.Label(recf_fr, text=all["fb_number"], bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+        f_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+        if all["status"]:
+            stateFb = "on yard"
+        else:
+            stateFb = ""
+        onyard_fb_lb = tk.Label(recf_fr, text=stateFb, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["on_parking"], width=15)
+        onyard_fb_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+        if all["LU"]:
+            cargo = "LOADED"
+            fgfb = conf["func_button_fg"]
+        else:
+            cargo = "EMPTY"
+            fgfb = conf["func_button_sel_fg"]
+        fC_lb = tk.Label(recf_fr, text=cargo, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=fgfb, width=15)
+        fC_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+        if all["storage"]:
+            strgFb = "storage"
+        else:
+            strgFb = ""
+        strFb_lb = tk.Label(recf_fr, text=strgFb, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), width=10)
+        if all["storage"]:
+            strFb_lb.config(fg=conf["storage_fg"])
+        else:
+            strFb_lb.config(fg=conf["header_fg"])
+        strFb_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+        f_time_lb = tk.Label(recf_fr, text=last_fb_time, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+        f_time_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+        f_sum_lb = tk.Label(recf_fr, text=delta_days, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["status_fg"], width=20)
+        f_sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+
 def GN_stat_insert(frame):
     today = date.today()
-    GN_stat_canv.yview_moveto(0)
-    for all in frame.winfo_children(): all.destroy()
     def extract(var):
-        for all in var: print(all)
         lst = list()
         for n in var[0]:
             u_dir = {}
@@ -4529,13 +4725,14 @@ def GN_stat_insert(frame):
                 else: u_dir.update({z[0]: None})
             lst.append(u_dir)
         return lst
-    gn_truck = extract(SQL_REQ("SELECT * FROM dbo.GN_Trucks", "S_all_D"))
-    gn_trailer = extract(SQL_REQ("SELECT * FROM dbo.GN_Trailers", "S_all_D"))
-    gn_fb = extract(SQL_REQ("SELECT * FROM dbo.GN_Flatbed", "S_all_D"))
-    print(gn_truck)
+
+    gn_truck = extract(SQL_REQ("SELECT * FROM dbo.GN_Trucks", (), "S_all_D"))
+    gn_trailer = extract(SQL_REQ("SELECT * FROM dbo.GN_Trailers", (), "S_all_D"))
+    gn_fb = extract(SQL_REQ("SELECT * FROM dbo.GN_Flatbed", (), "S_all_D"))
     c_frame = tk.Frame(frame, highlightthickness=0, bg=conf["widget_sel_bg"])
     c_frame.pack(side=tk.TOP, fill=tk.X, expand=1, pady=(0, 2), padx=(2, 0))
-    truck_label = tk.Label(c_frame, text="Trucks:", bg=conf["widget_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["submenu_fg"], width=GN_screen)
+    truck_label = tk.Label(c_frame, text="Trucks:", bg=conf["widget_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["submenu_fg"], width=GN_screen-2)
+    print(GN_screen)
     truck_label.pack(side=tk.TOP, fill=tk.X, expand=1, anchor=tk.NW, padx=3, pady=3)
     truck_frame = tk.Frame(c_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
     truck_frame.pack(side=tk.TOP, fill=tk.X, padx=3, pady=(0, 3))
@@ -4575,7 +4772,7 @@ def GN_stat_insert(frame):
         T_sum_lb = tk.Label(rec_fr, text=delta_days, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["status_fg"], width=20)
         T_sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
 
-    trailer_label = tk.Label(c_frame, text="Trailers:", bg=conf["widget_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["submenu_fg"], width=GN_screen)
+    trailer_label = tk.Label(c_frame, text="Trailers:", bg=conf["widget_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["submenu_fg"], width=GN_screen-2)
     trailer_label.pack(side=tk.TOP, fill=tk.X, expand=1, anchor=tk.NW, padx=3, pady=3)
     trailer_frame = tk.Frame(c_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
     trailer_frame.pack(side=tk.TOP, fill=tk.X, padx=3, pady=(0, 3))
@@ -4624,7 +4821,7 @@ def GN_stat_insert(frame):
         Tt_sum_lb = tk.Label(recT_fr, text=delta_days, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["status_fg"], width=20)
         Tt_sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
 
-    fb_label = tk.Label(c_frame, text="Flatbeds:", bg=conf["widget_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["submenu_fg"], width=GN_screen)
+    fb_label = tk.Label(c_frame, text="Flatbeds:", bg=conf["widget_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["submenu_fg"], width=GN_screen-2)
     fb_label.pack(side=tk.TOP, fill=tk.X, expand=1, anchor=tk.NW, padx=3, pady=3)
     fb_frame = tk.Frame(c_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
     fb_frame.pack(side=tk.TOP, fill=tk.X, padx=3, pady=(0, 3))
@@ -4674,14 +4871,17 @@ def GN_stat_insert(frame):
         f_time_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
         f_sum_lb = tk.Label(recf_fr, text=delta_days, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["status_fg"], width=20)
         f_sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
-    GN_stat_canv.update_idletasks()
-    GN_stat_scroll_region()
+
 
 def T_stat(*args):
     global GN_Menu_Var
     GN_Menu_Var = 3
-    for all in GN_central_frame.winfo_children(): all.pack_forget()
-    pass
+    Ten_state_date_sc_fr.delete
+    TEN_stat_insert(Ten_state_date_sc_fr.frame)
+    Ten_state_date_sc_fr.refresh
+    Ten_state_date_sc_fr.delete
+    data_Ten_stat.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+    data_GN_stat.pack_forget()
 
 def T_history(*args):
     global GN_Menu_Var
@@ -4692,11 +4892,14 @@ def T_history(*args):
 def GN_stat(*args):
     global GN_Menu_Var
     GN_Menu_Var = 1
-    for all in GN_central_frame.winfo_children(): all.pack_forget()
-    GN_stat_insert(second_GN_stat_frame)
+    GN_state_data_sc_fr.delete()
+    GN_stat_insert(GN_state_data_sc_fr.frame)
+    GN_state_data_sc_fr.refresh()
+    GN_state_data_sc_fr.top()
     data_GN_stat.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
-    GN_stat_canv.update_idletasks()
-    GN_stat_canv.yview_moveto(0)
+    data_Ten_stat.pack_forget()
+    # GN_stat_canv.update_idletasks()
+    # GN_stat_canv.yview_moveto(0)
 
 def GN_history(*args):
     global GN_Menu_Var
@@ -4706,8 +4909,7 @@ def GN_history(*args):
     data_GN_his.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
     print(GN_his_combobox_C)
     update_GN_his(None, GN_his_combobox_C, 0)
-    GN_his_canv.update_idletasks()
-    GN_his_canv.yview_moveto(0)
+
 
 def chart(*args):
     global GN_Menu_Var
@@ -4774,7 +4976,7 @@ def update_GN_his(event, *args):
     value=args[0].get()
     if value == "ALL":
         if args[1] == 0:
-            GN_combo_T_list = ["ALL"] + sorted(list({val[0] for val in SQL_REQ("SELECT truck_number FROM dbo.GN_History WHERE truck_number IS NOT NULL ORDER BY len(truck_number), truck_number", "S_all")}))
+            GN_combo_T_list = ["ALL"] + sorted(list({val[0] for val in SQL_REQ("SELECT truck_number FROM dbo.GN_History WHERE truck_number IS NOT NULL ORDER BY len(truck_number), truck_number", (), "S_all")}))
             GN_his_combobox_T.config(value=GN_combo_T_list)
             if GN_combo_filter_var is not None:
                 if args[1] in GN_combo_filter_var: del GN_combo_filter_var[args[1]]
@@ -4843,7 +5045,7 @@ def update_GN_his(event, *args):
         if args[1] == 42:
             GN_combo_days_list = ["ALL"] + list(str(day) for day in range(1, monthrange(int(GN_combo_filter_var[41]), int(value))[1] + 1))
             GN_his_combobox_D.config(value=GN_combo_days_list)
-    datapool = sorted(list(list(val) for val in SQL_REQ("SELECT * FROM dbo.GN_History ORDER BY datetime_event", "S_all")), key=lambda x:x[4])
+    datapool = sorted(list(list(val) for val in SQL_REQ("SELECT * FROM dbo.GN_History ORDER BY datetime_event", (), "S_all")), key=lambda x:x[4])
     result_list = []
     if GN_combo_filter_var is not None:
         if len(GN_combo_filter_var) > 0:
@@ -4867,11 +5069,11 @@ def update_GN_his(event, *args):
 
 
 #Defining vars for comboboxed
-GN_combo_C_list = ["ALL"] + sorted(list({val[0] for val in SQL_REQ("SELECT company_name FROM dbo.GN_History ORDER BY company_name", "S_all")}))
-GN_combo_T_list = ["ALL"] + sorted(list({val[0] for val in SQL_REQ("SELECT truck_number FROM dbo.GN_History WHERE truck_number IS NOT NULL ORDER BY len(truck_number), truck_number", "S_all")}))
-GN_combo_Tr_list = ["ALL"] + sorted(list({val[0] for val in SQL_REQ("SELECT trailer_number FROM dbo.GN_History WHERE trailer_number IS NOT NULL ORDER BY len(trailer_number), trailer_number", "S_all")}))
-GN_combo_FB_list = ["ALL"] + sorted(list({val[0] for val in SQL_REQ("SELECT fb_number FROM dbo.GN_History WHERE fb_number IS NOT NULL ORDER BY len(fb_number), fb_number", "S_all")}))
-GN_combo_year_list = ["ALL"] + sorted(list({val[0].year for val in SQL_REQ("SELECT datetime_event FROM dbo.GN_History ORDER BY datetime_event", "S_all")}))
+GN_combo_C_list = ["ALL"] + sorted(list({val[0] for val in SQL_REQ("SELECT company_name FROM dbo.GN_History ORDER BY company_name", (), "S_all")}))
+GN_combo_T_list = ["ALL"] + sorted(list({val[0] for val in SQL_REQ("SELECT truck_number FROM dbo.GN_History WHERE truck_number IS NOT NULL ORDER BY len(truck_number), truck_number", (), "S_all")}))
+GN_combo_Tr_list = ["ALL"] + sorted(list({val[0] for val in SQL_REQ("SELECT trailer_number FROM dbo.GN_History WHERE trailer_number IS NOT NULL ORDER BY len(trailer_number), trailer_number", (), "S_all")}))
+GN_combo_FB_list = ["ALL"] + sorted(list({val[0] for val in SQL_REQ("SELECT fb_number FROM dbo.GN_History WHERE fb_number IS NOT NULL ORDER BY len(fb_number), fb_number", (), "S_all")}))
+GN_combo_year_list = ["ALL"] + sorted(list({val[0].year for val in SQL_REQ("SELECT datetime_event FROM dbo.GN_History ORDER BY datetime_event", (), "S_all")}))
 GN_combo_month_list = ["ALL", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"]
 GN_combo_cargo_list = ["ALL", "LOADED", "EMPTY"]
 GN_combo_status_list = ["ALL", "IN", "OUT"]
@@ -4925,7 +5127,12 @@ GN_central_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
 
 
 # Tenant stat
+data_Ten_stat = tk.Frame(GN_central_frame, highlightthickness=0, bg=conf["window_bg"])
+data_Ten_stat.pack_propagate(False)
 
+Ten_state_date_sc_fr= scroller(data_Ten_stat)
+Ten_state_date_sc_fr.pack(side=tk.LEFT, fill=tk.X)
+#
 
 
 
@@ -4941,37 +5148,9 @@ GN_central_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
 data_GN_stat = tk.Frame(GN_central_frame, highlightthickness=0, bg=conf["window_bg"])
 data_GN_stat.pack_propagate(False)
 
-
-# Scrollable frame for Data
-sub_GN_stat_frame = tk.Frame(data_GN_stat, highlightthickness=0)
-sub_GN_stat_frame.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
-
-
-GN_stat_canv = tk.Canvas(sub_GN_stat_frame, bg=conf["window_bg"], highlightthickness=0)
-second_GN_stat_frame = tk.Frame(GN_stat_canv, bg=conf["window_bg"])
-GN_stat_scrl = ttk.Scrollbar(sub_GN_stat_frame, orient=tk.VERTICAL, command=GN_stat_canv.yview)
-GN_stat_canv.config(yscrollcommand=GN_stat_scrl.set)
-GN_stat_scrl.pack(fill=tk.Y, side=tk.RIGHT)
-GN_stat_canv.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
-GN_stat_canv.create_window((0, 0), window=second_GN_stat_frame, anchor=tk.NW)
-second_GN_stat_frame.bind("<Configure>", lambda event, canvas=GN_stat_canv: GN_stat_canv.configure(scrollregion=GN_stat_canv.bbox("all")))
-def GN_stat_scroll_region(*event):
-    if second_GN_stat_frame.winfo_height() <= GN_stat_canv.winfo_height():
-        GN_stat_scrl.pack_forget()
-        GN_stat_canv.configure(yscrollcommand=None)
-        second_GN_stat_frame.unbind("<Enter>")
-        second_GN_stat_frame.unbind_all("<MouseWheel>")
-    else:
-        GN_stat_scrl.pack(side=tk.RIGHT, fill=tk.Y)
-        GN_stat_canv.configure(yscrollcommand=GN_stat_scrl.set)
-        second_GN_stat_frame.bind("<Enter>", GN_stat_enter_mousewheel, add="+")
-GN_stat_canv.bind("<Configure>", GN_stat_scroll_region)
-
-def GN_stat_on_mousewheel(event): GN_stat_canv.yview_scroll(int(-1 * (event.delta / 120)), "units")
-def GN_stat_enter_mousewheel(event): GN_stat_canv.bind_all('<MouseWheel>', GN_stat_on_mousewheel, add="+")
-def GN_stat_leave_mousewheel(event): GN_stat_canv.unbind_all('<MouseWheel>')
-second_GN_stat_frame.bind("<Enter>", GN_stat_enter_mousewheel, add="+")
-second_GN_stat_frame.bind("<Leave>", GN_stat_leave_mousewheel)
+GN_state_data_sc_fr = scroller(data_GN_stat)
+GN_state_data_sc_fr.pack(side=tk.LEFT, fill=tk.X)
+#
 
 ##############################################################################################################
 #Frame with GN history information - packs by GN_stat
@@ -5190,7 +5369,7 @@ def Chart_Draw():
     elif chart_scale == "M": scale = f"YEAR(date)={year} AND MONTH(date)={month}"
     elif chart_scale == "D": scale = f"YEAR(date)={year} AND MONTH(date)={month} AND DAY(date)={day}"
     query = f"SELECT * FROM dbo.[statistics] WHERE ({scale})"
-    chart_data = SQL_REQ(query, "S_all")
+    chart_data = SQL_REQ(query, (), "S_all")
     if chart_data:
         sorted_data = sorted(chart_data, key=lambda x: x[0])
         fig = Figure(figsize=(6, 3), dpi=100)
@@ -5361,7 +5540,7 @@ s1ze = screen_x-int(conf["chk_filter_frame"])
 chk_data_size = (s1ze//17)+4
 def get_onyard():
     def extract(var):
-        comp = SQL_REQ("SELECT company_name, company_ID FROM dbo.Company_List", "S_all")
+        comp = SQL_REQ("SELECT company_name, company_ID FROM dbo.Company_List", (), "S_all")
         comp_dic = {}
         for x in comp:
             comp_dic.update({x[1]: x[0]})
@@ -5382,15 +5561,15 @@ def get_onyard():
                 else: u_dir.update({z[0]: None})
             list.append(u_dir)
         return list
-    ten_truck = SQL_REQ("SELECT * FROM dbo.Tenant_Trucks WHERE status=1", "S_all_D")
-    ten_truck_ur = SQL_REQ("SELECT * FROM dbo.Tenant_Trucks_UNREG WHERE status=1", "S_all_D")
-    ten_trailer = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers WHERE status=1", "S_all_D")
-    ten_trailer_ur = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers_UNREG WHERE status=1", "S_all_D")
-    gn_truck = SQL_REQ("SELECT * FROM dbo.GN_Trucks Where status=1", "S_all_D")
-    gn_trailer = SQL_REQ("SELECT * FROM dbo.GN_Trailers WHERE status=1", "S_all_D")
-    gn_fb = SQL_REQ("SELECT * FROM dbo.GN_Flatbed WHERE status=1", "S_all_D")
-    vis_cars = SQL_REQ("SELECT * FROM dbo.visitors WHERE status=1", "S_all_D")
-    vis_cars_UNREG = SQL_REQ("SELECT * FROM dbo.visitors_UNREG WHERE status=1", "S_all_D")
+    ten_truck = SQL_REQ("SELECT * FROM dbo.Tenant_Trucks WHERE status=1", (), "S_all_D")
+    ten_truck_ur = SQL_REQ("SELECT * FROM dbo.Tenant_Trucks_UNREG WHERE status=1", (), "S_all_D")
+    ten_trailer = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers WHERE status=1", (), "S_all_D")
+    ten_trailer_ur = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers_UNREG WHERE status=1", (), "S_all_D")
+    gn_truck = SQL_REQ("SELECT * FROM dbo.GN_Trucks Where status=1", (), "S_all_D")
+    gn_trailer = SQL_REQ("SELECT * FROM dbo.GN_Trailers WHERE status=1", (), "S_all_D")
+    gn_fb = SQL_REQ("SELECT * FROM dbo.GN_Flatbed WHERE status=1", (), "S_all_D")
+    vis_cars = SQL_REQ("SELECT * FROM dbo.visitors WHERE status=1", (), "S_all_D")
+    vis_cars_UNREG = SQL_REQ("SELECT * FROM dbo.visitors_UNREG WHERE status=1", (), "S_all_D")
     all_ten_trucks = extract(ten_truck)+extract(ten_truck_ur)
     all_ten_trailers = extract(ten_trailer)+extract(ten_trailer_ur)
     all_gn_trucks = extract(gn_truck)
@@ -6610,7 +6789,7 @@ chk_set_button.pack(fill=tk.X, side=tk.BOTTOM, padx=5, pady=5, ipady=10)
 
 
 
-unit_read = SQL_REQ("SELECT truck_number, status FROM dbo.GN_Trucks WHERE truck_number=\'928\'", "S_one")
+#unit_read = SQL_REQ("SELECT truck_number, status FROM dbo.GN_Trucks WHERE truck_number=\'928\'", (), "S_one")
 
 
 
@@ -6816,7 +6995,7 @@ def admin_company_insert(*args):
     if len(args)>1:
         adm_comp_list = args[1]
     else:
-        raw = SQL_REQ("SELECT * FROM dbo.Company_list ORDER BY company_name", "S_all")
+        raw = SQL_REQ("SELECT * FROM dbo.Company_list ORDER BY company_name", (), "S_all")
         adm_comp_list = list()
         for line in raw: adm_comp_list.append(list(line))
     for line in adm_comp_list:
@@ -6836,7 +7015,7 @@ def admin_company_insert(*args):
     Admin_Vehicle_num_Info_num_lb.config(text=Admin_Company_Quantity_V_Var)
     return create_entry_grid(args[0], adm_comp_list)
 def admin_company_register(*args):
-    raw = SQL_REQ("SELECT * FROM dbo.Company_list ORDER BY company_name", "S_all")
+    raw = SQL_REQ("SELECT * FROM dbo.Company_list ORDER BY company_name", (), "S_all")
     comp_list = list()
     for line in raw: comp_list.append(list(line))
     new_record = [
@@ -6884,7 +7063,7 @@ def admin_company_register(*args):
             NEW_ID = i
             break
     new_record.insert(0, str(NEW_ID))
-    SQL_REQ(["INSERT INTO dbo.Company_List(company_ID, company_name, designated, regular, trailer, truck, car, activity, insurance) VALUES (?,?,?,?,?,?,?,?,?)", new_record], "I_D")
+    SQL_REQ("INSERT INTO dbo.Company_List(company_ID, company_name, designated, regular, trailer, truck, car, activity, insurance) VALUES (?,?,?,?,?,?,?,?,?)", new_record, "W")
     admin_company_cancel()
     admin_company_insert(Admin_Company_Scroll.frame)
 
@@ -6922,7 +7101,7 @@ def admin_company_commit_changes(entries):
 
     for line in modified_list:
         line = [value if value != "" else None for value in line]
-        SQL_REQ(["UPDATE dbo.Company_List SET company_name=?, designated=?, regular=?, trailer=?, truck=?, car=?, activity=?, insurance=? WHERE company_ID=?", (line[1], line[2], line[3], line[4], line[5], line[6], line[7], line[8] , line[0])], "U_D")
+        SQL_REQ("UPDATE dbo.Company_List SET company_name=?, designated=?, regular=?, trailer=?, truck=?, car=?, activity=?, insurance=? WHERE company_ID=?", (line[1], line[2], line[3], line[4], line[5], line[6], line[7], line[8] , line[0]), "W")
     #############
 
     Admin_Company_Entries = admin_company_insert(Admin_Company_Scroll.frame, modified_list)
@@ -7123,7 +7302,7 @@ def adm_add():
     opt = adm_radio_var.get()
     unit = adm_t_entry.get().strip()
     if unit is None or unit == "": return
-    var = SQL_REQ('SELECT company_ID FROM dbo.Company_List WHERE company_name=\'' + Adm_Company_Var + '\'', "S_one")
+    var = SQL_REQ("SELECT company_ID FROM dbo.Company_List WHERE company_name=?", (Adm_Company_Var,), "S_one")
     if var: ID = str(var[0])
     if opt == "truck":
         table = "dbo.Tenant_Trucks"
@@ -7135,19 +7314,19 @@ def adm_add():
         unreg_table = "dbo.Tenant_Trailers_UNREG"
         column = "trailer_number"
 
-    check = SQL_REQ("SELECT * FROM "+unreg_table+" WHERE company_ID=\'"+ID+"\' AND "+column+"=\'"+unit+"\'", "S_one")
+    check = SQL_REQ(f"SELECT * FROM {unreg_table} WHERE company_ID=? AND {column}=?", (ID, unit), "S_one")
     if check:
-        recheck = SQL_REQ("SELECT * FROM "+table+" WHERE company_ID=\'"+ID+"\' AND "+column+"=\'"+unit+"\'", "S_one")
+        recheck = SQL_REQ(f"SELECT * FROM {table} WHERE company_ID=? AND {column}=?", (ID, unit), "S_one")
         if not recheck:
-            SQL_REQ("INSERT INTO "+table+" SELECT * FROM "+unreg_table+" WHERE company_ID=\'"+ID+"\' AND "+column+"=\'"+unit+"\'", "D")
-            SQL_REQ("DELETE FROM "+unreg_table+" WHERE company_ID=\'"+ID+"\' AND "+column+"=\'"+unit+"\'", "D")
+            SQL_REQ(f"INSERT INTO {table} SELECT * FROM {unreg_table} WHERE company_ID=? AND {column}=?", (ID, unit), "W")
+            SQL_REQ(f"DELETE FROM {unreg_table} WHERE company_ID=? AND {column}=?", (ID, unit), "W")
         else: error(12)
     else:
-        recheck = SQL_REQ("SELECT * FROM "+table+" WHERE company_ID=\'"+ID+"\' AND "+column+"=\'"+unit+"\'", "S_one")
+        recheck = SQL_REQ(f"SELECT * FROM {table} WHERE company_ID=? AND {column}=?", (ID, unit), "S_one")
         if not recheck:
             query = f"INSERT INTO {table} (company_ID, {column}) VALUES (?, ?)"
             values = (ID, unit)
-            SQL_REQ([query,values], "I_D")   #fix insert select*
+            SQL_REQ(query, values, "W")   #fix insert select*
         else: error(12)
     adm_t_entry.delete(0,tk.END)
     adm_t_entry.focus_set()
@@ -7156,22 +7335,22 @@ def adm_add():
 def adm_remove():
     if Adm_Company_Var is None: return
     if Adm_Truck_Var is None and Adm_Trailer_Var is None: return
-    val = SQL_REQ('SELECT company_ID FROM dbo.Company_List WHERE company_name=\'' + Adm_Company_Var + '\'', "S_one")
+    val = SQL_REQ("SELECT company_ID FROM dbo.Company_List WHERE company_name=?", (Adm_Company_Var), "S_one")
     if val: ID =  str(val[0])
     if Adm_Truck_Var is not None:
         if Adm_Truck_Var[2] == "REG":
-            check = SQL_REQ("SELECT * FROM dbo.Tenant_Trucks WHERE company_ID=\'"+ ID +"\' AND truck_number=\'"+ Adm_Truck_Var[0] +"\'", "S_one")
-            if check: SQL_REQ("DELETE FROM dbo.Tenant_Trucks WHERE company_ID=\'"+ ID +"\' AND truck_number=\'"+ Adm_Truck_Var[0] +"\'", "D")
+            check = SQL_REQ("SELECT * FROM dbo.Tenant_Trucks WHERE company_ID=? AND truck_number=?", (ID, Adm_Truck_Var[0]), "S_one")
+            if check: SQL_REQ("DELETE FROM dbo.Tenant_Trucks WHERE company_ID=? AND truck_number=?", (ID, Adm_Truck_Var[0]), "W")
         elif Adm_Truck_Var[2] == "UNREG":
-            check = SQL_REQ("SELECT * FROM dbo.Tenant_Trucks_UNREG WHERE company_ID=\'" + ID + "\' AND truck_number=\'" + Adm_Truck_Var[0] + "\'", "S_one")
-            if check: SQL_REQ("DELETE FROM dbo.Tenant_Trucks_UNREG WHERE company_ID=\'" + ID + "\' AND truck_number=\'" + Adm_Truck_Var[0] + "\'", "D")
+            check = SQL_REQ("SELECT * FROM dbo.Tenant_Trucks_UNREG WHERE company_ID=? AND truck_number=?", (ID, Adm_Truck_Var[0]), "S_one")
+            if check: SQL_REQ("DELETE FROM dbo.Tenant_Trucks_UNREG WHERE company_ID=? AND truck_number=?", (ID, Adm_Truck_Var[0]), "W")
     elif Adm_Trailer_Var is not None:
         if Adm_Trailer_Var[2] == "REG":
-            check = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers WHERE company_ID=\'" + ID + "\' AND trailer_number=\'" + Adm_Trailer_Var[0] + "\'", "S_one")
-            if check: SQL_REQ("DELETE FROM dbo.Tenant_Trailers WHERE company_ID=\'" + ID + "\' AND trailer_number=\'" + Adm_Trailer_Var[0] + "\'", "D")
+            check = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers WHERE company_ID=? AND trailer_number=?", (ID, Adm_Trailer_Var[0]), "S_one")
+            if check: SQL_REQ("DELETE FROM dbo.Tenant_Trailers WHERE company_ID=? AND trailer_number=?", (ID, Adm_Trailer_Var[0]), "W")
         elif Adm_Trailer_Var[2] == "UNREG":
-            check = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers_UNREG WHERE company_ID=\'" + ID + "\' AND trailer_number=\'" + Adm_Trailer_Var[0] + "\'", "S_one")
-            if check: SQL_REQ("DELETE FROM dbo.Tenant_Trailers_UNREG WHERE company_ID=\'" + ID + "\' AND trailer_number=\'" + Adm_Trailer_Var[0] + "\'", "D")
+            check = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers_UNREG WHERE company_ID=? AND trailer_number=?", (ID, Adm_Trailer_Var[0]), "S_one")
+            if check: SQL_REQ("DELETE FROM dbo.Tenant_Trailers_UNREG WHERE company_ID=? AND trailer_number=?", (ID, Adm_Trailer_Var[0]), "W")
     adm_t_entry.focus_set()
     UNTS(Adm_Company_obj, Adm_Company_Var, "Admin_Units")
 
@@ -7181,14 +7360,14 @@ def adm_storage_check():
     if Adm_Company_Var is None: return
     if Adm_Trailer_Var is None: return
     str_status = adm_storage_var.get()
-    val = SQL_REQ('SELECT company_ID FROM dbo.Company_List WHERE company_name=\'' + Adm_Company_Var + '\'', "S_one")
+    val = SQL_REQ("SELECT company_ID FROM dbo.Company_List WHERE company_name=?", (Adm_Company_Var,), "S_one")
     if val: ID = str(val[0])
     if Adm_Trailer_Var[2] == "REG":
-        check = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers WHERE company_ID=\'" + ID + "\' AND trailer_number=\'" + Adm_Trailer_Var[0] + "\'", "S_one")
-        if check: SQL_REQ("UPDATE dbo.Tenant_Trailers SET storage=\'"+str(str_status)+"\' WHERE company_ID=\'" + ID + "\' AND trailer_number=\'" + Adm_Trailer_Var[0] + "\'", "D")
+        check = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers WHERE company_ID=? AND trailer_number=?", (ID, Adm_Trailer_Var[0]), "S_one")
+        if check: SQL_REQ("UPDATE dbo.Tenant_Trailers SET storage=? WHERE company_ID=? AND trailer_number=?", (str(str_status), ID, Adm_Trailer_Var[0]), "W")
     elif Adm_Trailer_Var[2] == "UNREG":
-        check = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers_UNREG WHERE company_ID=\'" + ID + "\' AND trailer_number=\'" + Adm_Trailer_Var[0] + "\'", "S_one")
-        if check: SQL_REQ("UPDATE dbo.Tenant_Trailers_UNREG SET storage=\'"+str(str_status)+"\' WHERE company_ID=\'" + ID + "\' AND trailer_number=\'" + Adm_Trailer_Var[0] + "\'", "D")
+        check = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers_UNREG WHERE company_ID=? AND trailer_number=?", (ID, Adm_Trailer_Var[0]), "S_one")
+        if check: SQL_REQ("UPDATE dbo.Tenant_Trailers_UNREG SET storage=? WHERE company_ID=? AND trailer_number=?", (str(str_status), ID, Adm_Trailer_Var[0]), "W")
 
 #Button Frame for Adding/Delete Units
 adm_manual_entry_frame = tk.Frame(adm_right_frame, highlightthickness=0, bg=conf["submenu_bg"])
@@ -7230,7 +7409,7 @@ def adm_Vis_add(*args):
     if plate is None: return
     car = adm_Vis_car_entry.get().strip() if adm_Vis_car_entry.get().strip() != "" else None
     name = adm_Vis_n_entry.get().strip() if adm_Vis_n_entry.get().strip() != "" else None
-    ID = str(SQL_REQ("SELECT company_ID FROM dbo.Company_List WHERE company_name=\'"+Adm_Vis_Company_Var+"\'", "S_one")[0])
+    ID = str(SQL_REQ("SELECT company_ID FROM dbo.Company_List WHERE company_name=?", (Adm_Vis_Company_Var,), "S_one")[0])
     prv = adm_vis_radio_var.get()
     if prv == "private":
         if adm_Vis_exp_entry.get() != "":
@@ -7251,11 +7430,11 @@ def adm_Vis_add(*args):
     rec = [ID, plate, name, car, exp, private_var]
     if rec[4] == 0: rec[4] = None
     if Current_Adm_Visitor_Unit is not None:
-        check = SQL_REQ("SELECT * FROM dbo.visitors_UNREG WHERE plates=\'"+Current_Adm_Visitor_Unit[5].get("plates")+"\'", "S_one_D")
-        if check: SQL_REQ("DELETE FROM dbo.visitors_UNREG WHERE plates=\'"+Current_Adm_Visitor_Unit[5].get("plates")+"\'", "D")
-    check = SQL_REQ("SELECT plates FROM dbo.visitors WHERE plates=\'" +plate+ "\'", "S_one")
-    if check: SQL_REQ(["UPDATE dbo.visitors SET company_ID=?, plates=?, driver_name=?, car_model=?, expiration=?, private=? WHERE company_ID=\'"+ID+"\' AND plates=\'"+check[0]+"\'", rec], "U_D")
-    else: SQL_REQ(["INSERT INTO dbo.visitors (company_ID, plates, driver_name, car_model, expiration, private) VALUES (?,?,?,?,?,?)", rec], "I_D")
+        check = SQL_REQ("SELECT * FROM dbo.visitors_UNREG WHERE plates=?", (Current_Adm_Visitor_Unit[5].get("plates")), "S_one_D")
+        if check: SQL_REQ("DELETE FROM dbo.visitors_UNREG WHERE plates=?", (Current_Adm_Visitor_Unit[5].get("plates")), "W")
+    check = SQL_REQ("SELECT plates FROM dbo.visitors WHERE plates=?", (plate,), "S_one")
+    if check: SQL_REQ("UPDATE dbo.visitors SET company_ID=?, plates=?, driver_name=?, car_model=?, expiration=?, private=? WHERE company_ID=? AND plates=?", rec+[ID, check[0]], "W")
+    else: SQL_REQ("INSERT INTO dbo.visitors (company_ID, plates, driver_name, car_model, expiration, private) VALUES (?,?,?,?,?,?)", rec, "W")
     Admin_VIS_RESET()
 
 def adm_Vis_remove(*args):
@@ -7268,8 +7447,7 @@ def adm_Vis_remove(*args):
         table = "dbo.visitors_UNREG"
     else:
         table = "dbo.visitors"
-    SQL_REQ("DELETE FROM "+table+" WHERE plates=\'"+Current_Adm_Visitor_Unit[5].get("plates")+"\'", "D")
-    print("DELETE FROM "+table+" WHERE plates=\'"+Current_Adm_Visitor_Unit[5].get("plates")+"\'")
+    SQL_REQ(f"DELETE FROM {table} WHERE plates=?", (Current_Adm_Visitor_Unit[5].get("plates"),), "W")
     Admin_VIS_RESET()
 
 def adm_vis_no():
@@ -7516,7 +7694,7 @@ def adm_GN_add(*args):
     elif opt == "flatbed":
         table = "dbo.GN_Flatbed"
         column = "fb_number"
-    check = SQL_REQ("SELECT * FROM "+table+" WHERE "+column+"=\'"+unit+"\'", "S_one")
+    check = SQL_REQ(f"SELECT * FROM {table} WHERE {column}=?", (unit,), "S_one")
     if check:
         error(12)
         return
@@ -7529,7 +7707,7 @@ def adm_GN_add(*args):
         else:
             query = f"INSERT INTO {table} ({column}, status) VALUES (?, ?)"
             values = (unit, "0")
-        SQL_REQ([query, values], "I_D")
+        SQL_REQ(query, values, "W")
     adm_GN_t_entry.delete(0, tk.END)
     adm_GN_t_entry.focus_set()
     Refresh("adm_GN")
@@ -7538,14 +7716,14 @@ def adm_GN_add(*args):
 def adm_GN_remove(*args):
     if Adm_GN_Truck_Var is None and Adm_GN_Trailer_Var is None and Adm_GN_Fb_Var is None: return
     if Adm_GN_Truck_Var is not None:
-        check = SQL_REQ("SELECT * FROM dbo.GN_Trucks WHERE truck_number=\'"+ Adm_GN_Truck_Var[0] +"\'", "S_one")
-        if check: SQL_REQ("DELETE FROM dbo.GN_Trucks WHERE truck_number=\'"+ Adm_GN_Truck_Var[0] +"\'", "D")
+        check = SQL_REQ("SELECT * FROM dbo.GN_Trucks WHERE truck_number=?", (Adm_GN_Truck_Var[0],), "S_one")
+        if check: SQL_REQ("DELETE FROM dbo.GN_Trucks WHERE truck_number=?", (Adm_GN_Truck_Var[0],), "W")
     elif Adm_GN_Trailer_Var is not None:
-        check = SQL_REQ("SELECT * FROM dbo.GN_Trailers WHERE trailer_number=\'" + Adm_GN_Trailer_Var[0] + "\'", "S_one")
-        if check: SQL_REQ("DELETE FROM dbo.GN_Trailers WHERE trailer_number=\'" + Adm_GN_Trailer_Var[0] + "\'", "D")
+        check = SQL_REQ("SELECT * FROM dbo.GN_Trailers WHERE trailer_number=?", (Adm_GN_Trailer_Var[0],), "S_one")
+        if check: SQL_REQ("DELETE FROM dbo.GN_Trailers WHERE trailer_number=?", (Adm_GN_Trailer_Var[0],), "W")
     elif Adm_GN_Fb_Var is not None:
-        check = SQL_REQ("SELECT * FROM dbo.GN_Flatbed WHERE fb_number=\'" + Adm_GN_Fb_Var[0] + "\'", "S_one")
-        if check: SQL_REQ("DELETE FROM dbo.GN_Flatbed WHERE fb_number=\'" + Adm_GN_Fb_Var[0] + "\'", "D")
+        check = SQL_REQ("SELECT * FROM dbo.GN_Flatbed WHERE fb_number=?", (Adm_GN_Fb_Var[0],), "S_one")
+        if check: SQL_REQ("DELETE FROM dbo.GN_Flatbed WHERE fb_number=?", (Adm_GN_Fb_Var[0],), "W")
     else:
         error(11)
     adm_GN_t_entry.focus_set()
@@ -7555,10 +7733,10 @@ def adm_GN_storage_check(*args):
     global adm_GN_storage_var
     str_status = adm_GN_storage_var.get()
     if Adm_GN_Trailer_Var is not None:
-        SQL_REQ("UPDATE dbo.GN_Trailers SET storage=\'"+str(str_status)+"\' WHERE trailer_number=\'" + Adm_GN_Trailer_Var[0] + "\'", "D")
+        SQL_REQ("UPDATE dbo.GN_Trailers SET storage=? WHERE trailer_number=?", (str(str_status), Adm_GN_Trailer_Var[0]), "W")
         Adm_GN_Trailer_Var[1][1] = str_status
     elif Adm_GN_Fb_Var is not None:
-        SQL_REQ("UPDATE dbo.GN_Flatbed SET storage=\'"+str(str_status)+"\' WHERE fb_number=\'" + Adm_GN_Fb_Var[0] + "\'", "D")
+        SQL_REQ("UPDATE dbo.GN_Flatbed SET storage=? WHERE fb_number=?", (str(str_status), Adm_GN_Fb_Var[0]), "W")
         Adm_GN_Fb_Var[1][1] = str_status
     else: return
 
@@ -7567,10 +7745,10 @@ def adm_GN_LU_check(*args):
     global adm_GN_LU_var
     str_status = adm_GN_LU_var.get()
     if Adm_GN_Trailer_Var is not None:
-        SQL_REQ("UPDATE dbo.GN_Trailers SET LU=\'" + str(str_status) + "\' WHERE trailer_number=\'" + Adm_GN_Trailer_Var[0] + "\'", "D")
+        SQL_REQ("UPDATE dbo.GN_Trailers SET LU=? WHERE trailer_number=?", (str(str_status), Adm_GN_Trailer_Var[0]), "W")
         Adm_GN_Trailer_Var[1][2] = str_status
     elif Adm_GN_Fb_Var is not None:
-        SQL_REQ("UPDATE dbo.GN_Flatbed SET LU=\'" + str(str_status) + "\' WHERE fb_number=\'" + Adm_GN_Fb_Var[0] + "\'", "D")
+        SQL_REQ("UPDATE dbo.GN_Flatbed SET LU=? WHERE fb_number=?", (str(str_status), Adm_GN_Fb_Var[0]), "W")
         Adm_GN_Fb_Var[1][2] = str_status
     else:
         return
@@ -7627,7 +7805,7 @@ Admin_Account_Frame = tk.Frame(adm_main_frame, bg=conf["window_bg"], highlightth
 Admin_Account_Frame.pack_propagate(0)
 
 #getting list of accounts with info
-account_list = sorted((list(val) for val in SQL_REQ("SELECT * FROM dbo.authentication", "S_all")), key=lambda x: x[0])
+account_list = sorted((list(val) for val in SQL_REQ("SELECT * FROM dbo.authentication", (), "S_all")), key=lambda x: x[0])
 
 ##############################################################################################################################################################################################
 def admin_company_insert(*args):
@@ -7679,7 +7857,7 @@ def admin_company_insert(*args):
     if len(args)>1:
         adm_comp_list = args[1]
     else:
-        raw = SQL_REQ("SELECT * FROM dbo.Company_list ORDER BY company_name", "S_all")
+        raw = SQL_REQ("SELECT * FROM dbo.Company_list ORDER BY company_name", (), "S_all")
         adm_comp_list = list()
         for line in raw: adm_comp_list.append(list(line))
     for line in adm_comp_list:
@@ -7699,7 +7877,7 @@ def admin_company_insert(*args):
     Admin_Vehicle_num_Info_num_lb.config(text=Admin_Company_Quantity_V_Var)
     return create_entry_grid(args[0], adm_comp_list)
 def admin_company_register(*args):
-    raw = SQL_REQ("SELECT * FROM dbo.Company_list ORDER BY company_name", "S_all")
+    raw = SQL_REQ("SELECT * FROM dbo.Company_list ORDER BY company_name", (), "S_all")
     comp_list = list()
     for line in raw: comp_list.append(list(line))
     new_record = [
@@ -7747,7 +7925,7 @@ def admin_company_register(*args):
             NEW_ID = i
             break
     new_record.insert(0, str(NEW_ID))
-    SQL_REQ(["INSERT INTO dbo.Company_List(company_ID, company_name, designated, regular, trailer, truck, car, activity, insurance) VALUES (?,?,?,?,?,?,?,?,?)", new_record], "I_D")
+    SQL_REQ("INSERT INTO dbo.Company_List(company_ID, company_name, designated, regular, trailer, truck, car, activity, insurance) VALUES (?,?,?,?,?,?,?,?,?)", new_record, "W")
     admin_company_cancel()
     admin_company_insert(Admin_Company_Scroll.frame)
 
@@ -7784,7 +7962,7 @@ def admin_company_commit_changes(entries):
 
     for line in modified_list:
         line = [value if value != "" else None for value in line]
-        SQL_REQ(["UPDATE dbo.Company_List SET company_name=?, designated=?, regular=?, trailer=?, truck=?, car=?, activity=?, insurance=? WHERE company_ID=?", (line[1], line[2], line[3], line[4], line[5], line[6], line[7], line[8] , line[0])], "U_D")
+        SQL_REQ("UPDATE dbo.Company_List SET company_name=?, designated=?, regular=?, trailer=?, truck=?, car=?, activity=?, insurance=? WHERE company_ID=?", (line[1], line[2], line[3], line[4], line[5], line[6], line[7], line[8] , line[0]), "W")
 
 
     Admin_Company_Entries = admin_company_insert(Admin_Company_Scroll.frame, modified_list)
@@ -7811,14 +7989,14 @@ def admin_company_cancel():
 def adm_account_change(event, column_name, id, obj):
     if column_name == "activity":
         stat = int(obj.get())
-        SQL_REQ("UPDATE dbo.authentication SET " + column_name + "=" + str(stat) + " WHERE ID=\'" + str(id) + "\'", "D")
+        SQL_REQ(f"UPDATE dbo.authentication SET {column_name}=? WHERE ID=?", (str(stat), str(id)), "W")
     elif column_name == "password":
         pass_class = PasswordDatabase()
         new_pass = pass_class.hash_password(obj.get()).decode("utf-8")
-        SQL_REQ("UPDATE dbo.authentication SET " + column_name + "=\'" + new_pass + "\' WHERE ID=\'" + str(id) + "\'", "D")
+        SQL_REQ(f"UPDATE dbo.authentication SET {column_name}=? WHERE ID=?", (new_pass, str(id)), "W")
         adm_account_display()
     else:
-        SQL_REQ("UPDATE dbo.authentication SET "+column_name+"=\'"+obj.get()+"\' WHERE ID=\'"+str(id)+"\'", "D")
+        SQL_REQ(f"UPDATE dbo.authentication SET {column_name}=? WHERE ID=?", (obj.get(), str(id)), "W")
         adm_account_display()
 def adm_account_add_button(*args):
     Admin_Account_Add_Button.pack_forget()
@@ -7854,7 +8032,7 @@ def adm_account_add(*args):
         error(5)
         return
     account_add = PasswordDatabase()
-    check = SQL_REQ("select login from dbo.authentication where login=\'"+login+"\'", "S_one")
+    check = SQL_REQ("SELECT login FROM dbo.authentication WHERE login=?", (login,), "S_one")
     print(check, type(check))
     if check is None:
         try:
@@ -7866,6 +8044,8 @@ def adm_account_add(*args):
     else:
         error(12)
         return
+    adm_account_display()
+    adm_account_add_cancel()
 def adm_account_display():
     def adm_entry_creator(record, counter):
         adm_acc_log_entry = tk.Entry(Admin_Account_Table_Frame, bg=conf["widget_bg"], highlightcolor=conf["entry_sel_frame"], highlightthickness=1, highlightbackground=conf["widget_bg"], bd=0, font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["widget_fg"], justify=tk.CENTER, width=20)
@@ -7901,7 +8081,7 @@ def adm_account_display():
     adm_acc_rights_lb.grid(row=0, column=3, sticky=tk.EW, padx=(0, 1))
     adm_acc_activity_lb = tk.Label(Admin_Account_Table_Frame, text="Activity", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=10)
     adm_acc_activity_lb.grid(row=0, column=4, sticky=tk.EW, padx=(0, 1))
-    query = SQL_REQ("SELECT * FROM dbo.authentication", "S_all_D")
+    query = SQL_REQ("SELECT * FROM dbo.authentication", (), "S_all_D")
     acc_list = list()
     if query:
         column_name = [column[0] for column in query[1]]
@@ -7989,7 +8169,7 @@ def Adm_Ven_Insert(masta):
 
     masta.delete()
     masta.refresh()
-    query = SQL_REQ("SELECT * FROM dbo.Car_Vendors", "S_all")
+    query = SQL_REQ("SELECT * FROM dbo.Car_Vendors", (), "S_all")
     if query:
         ven_list = {k:v for k, v in query}
     else:
@@ -8009,11 +8189,11 @@ def adm_ven_add_button(*args):
     else:
         if Admin_Vendor_Var is None:
             new_rec = [Admin_Vendor_MaxID+1, new_ven]
-            SQL_REQ(["INSERT INTO dbo.Car_Vendors (ID, Vendor) VALUES (?,?)", new_rec], "I_D")
+            SQL_REQ("INSERT INTO dbo.Car_Vendors (ID, Vendor) VALUES (?,?)", new_rec, "W")
             adm_ven_refresh()
         else:
             print(Admin_Vendor_Var[1], Admin_Vendor_Var[0])
-            SQL_REQ(["UPDATE dbo.Car_Vendors SET Vendor=? WHERE ID=?", (new_ven, Admin_Vendor_Var[0])], "U_D")
+            SQL_REQ("UPDATE dbo.Car_Vendors SET Vendor=? WHERE ID=?", (new_ven, Admin_Vendor_Var[0]), "W")
             adm_ven_refresh()
 def adm_ven_refresh():
     global Admin_Vendor_obj
