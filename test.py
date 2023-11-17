@@ -101,6 +101,7 @@ if "Admin_Vendor_Var" not in globals(): Admin_Vendor_Var = None
 if "Admin_Vendor_obj" not in globals(): Admin_Vendor_obj = None
 if "Admin_Vendor_MaxID" not in globals(): Admin_Vendor_MaxID = None
 if "chart_scale" not in globals(): chart_scale = None
+
 #default config.ini str
 config_string = """font_name=Arial
 font_size=22
@@ -415,7 +416,6 @@ def TESTER():
                                 create_table_sql += f"[{column}] {datatype}, "
                             create_table_sql = create_table_sql.rstrip(", ")
                             create_table_sql += ");"
-                            print(create_table_sql)
                             admcursor.execute(create_table_sql)
                         # Addin Default Admin Account for Parking Hawk
                         user = "admin"
@@ -428,14 +428,12 @@ def TESTER():
                         try:
                             admcursor.execute(f"INSERT INTO dbo.authentication(login, password, full_name, rights, activity) values (?,?,?,?,?)", (user, encr_pass, name, rights, activity))
                         except pyodbc.Error as e:
-                            print("error creating default login")
                             error(13)
                             debuger(e)
                             admcursor.close()
                             admconnection.close()
                         break
                     except pyodbc.Error as e:
-                        print("creating table error")
                         debuger(e)
                         admcursor.close()
                         admconnection.close()
@@ -599,8 +597,7 @@ class PasswordDatabase:
         row = SQL_REQ("SELECT login, password FROM dbo.authentication WHERE activity=1", (), "S_all")
         self.data = {k: v for k, v in row}
     def register(self, user, password, name, rights, activity):
-        if user in self.data:
-            return error(3)
+        if user in self.data: return error(3)
         pwd_hash = self.hash_password(password)
         self.data[user] = pwd_hash
         val = (user, pwd_hash, name, rights, activity)
@@ -677,6 +674,809 @@ class scroller(tk.Frame):
     def on_mousewheel(self, event): self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
     def enter_mousewheel(self, event): self.canvas.bind_all('<MouseWheel>', self.on_mousewheel, add="+")
     def leave_mousewheel(self, event): self.canvas.unbind_all('<MouseWheel>')
+    def grid_config(self, weight_vals):
+        for i, weight in enumerate(weight_vals):
+            self.frame.grid_columnconfigure(i, weight=weight)
+            print(f"{self}.frame.grid_columnconfigure({i}, weight={weight})")
+
+
+class filter_frame(tk.Frame):
+    checkyard_marker = sets["chk_datetime"]
+    checkyard_instances = []
+    def __init__(self, parent, **kwargs):
+        try:
+            super().__init__(parent, **kwargs)
+            self.frame_deploy()
+        except Exception as e:
+            error(22)
+            debuger(e)
+    # Deploying main frame for filter
+    def frame_deploy(self):
+        self.mainframe = tk.Frame(self, highlightthickness=3, relief=tk.RAISED, bg=conf["submenu_bg"], highlightbackground=conf["submenu_sel_bg"], width=conf["chk_filter_frame"])
+        self.mainframe.pack_propagate(False)
+        self.mainframe.pack(side=tk.LEFT, fill=tk.BOTH)
+    ### Filters
+    # Check Yard Filter (company-combobox, truck-checkbox, trailer-checkbox, storage-checkbox, time-checkbox+entry, generate-button, print-button)
+    def checkyard(self, **kwargs):
+        # adding instance in list of checkyard instances in class for bulk modification
+        self.checkyard_instances.append(self)
+        # initializing function responsible for activation
+        self.company_func = kwargs.get("company_func")
+        self.time_on_yard_func = kwargs.get("time_on_yard_func")
+        self.check_generate = kwargs.get("check_generate")
+        self.check_print = kwargs.get("check_print")
+        self.truck_func = kwargs.get("truck_func")
+        self.trailer_func = kwargs.get("trailer_func")
+        self.storage_func = kwargs.get("storage_func")
+        self.age_func = kwargs.get("age_func")
+        # deployment of filters
+        self.company()
+        self.truck_box()
+        self.trailer_box()
+        self.storage_box()
+        self.time_on_yard()
+        self.generate_buttons()
+    # Tenant History Filter (company-combobox)
+    def tenant_history(self, **kwargs):
+        self.company_func = kwargs.get("comapny_func")
+        self.truck_search_func = kwargs.get("truck_func")
+        self.trailer_func = kwargs.get("trailer_func")
+        self.storage_func = kwargs.get("storage_func")
+        self.scale_func = kwargs.get("scale_func")
+        self.period_func = kwargs.get("period_func")
+        self.truck_search_var = tk.StringVar()
+        self.trailer_search_var = tk.StringVar()
+        self.search_truck_checkbox = tk.BooleanVar()
+        self.search_trailer_checkbox = tk.BooleanVar()
+        self.company()
+        self.date_period()
+        self.date_scale()
+        self.unit_search(label="Truck Search:", var=self.truck_search_var, checkbox = self.search_truck_checkbox, func=self.truck_search_func)
+        self.unit_search(label="Trailer Search:", var=self.trailer_search_var, checkbox = self.search_trailer_checkbox, func=self.truck_search_func)
+        self.storage_box()
+        self.history_buttons()
+
+    def GN_histor(self, **kwargs):
+        self.truck_search_func = kwargs.get("truck_func")
+        self.trailer_func = kwargs.get("trailer_func")
+        self.fb_func = kwargs.get("fb_func")
+        self.scale_func = kwargs.get("scale_func")
+        self.period_func = kwargs.get("period_func")
+        self.truck_search_var = tk.StringVar()
+        self.trailer_search_var = tk.StringVar()
+        self.fb_search_var = tk.StringVar()
+        self.search_truck_checkbox = tk.BooleanVar()
+        self.search_trailer_checkbox = tk.BooleanVar()
+        self.search_fb_checkbox = tk.BooleanVar()
+        self.date_period()
+        self.date_scale()
+        self.unit_search(label="Truck Search:", var=self.truck_search_var, checkbox=self.search_truck_checkbox, func=self.truck_search_func)
+        self.unit_search(label="Trailer Search:", var=self.trailer_search_var, checkbox=self.search_trailer_checkbox, func=self.truck_search_func)
+        self.unit_search(label="Flatbed Search:", var=self.fb_search_var, checkbox=self.search_fb_checkbox, func=self.truck_search_func)
+        self.history_buttons()
+
+    def company(self):
+        self.comp_list = ["All"] + units_lst("company")
+        self.comp_lb = tk.Label(self.mainframe, text="Companies:", foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["header_size"]), bg=conf["submenu_bg"])
+        self.comp_lb.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.W)
+        self.comp_box = ttk.Combobox(self.mainframe, values=self.comp_list, width=10, background=conf["submenu_sel_bg"], foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["notebook_tab_size"]), state="readonly")
+        self.comp_box.pack(fill=tk.X, side=tk.TOP, padx=5, pady=(0, 10))
+        self.comp_box.current(0)
+        self.comp_box.bind("<<ComboboxSelected>>", self.company_func)
+    def truck_box(self):
+        self.var_truck = tk.BooleanVar()
+        self.truck_checkbutton = tk.Checkbutton(self.mainframe, text="Trucks", variable=self.var_truck, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], onvalue=True, offvalue=False)
+        self.truck_checkbutton.pack(side=tk.TOP, padx=5, pady=(0, 10), anchor=tk.W)
+        self.truck_checkbutton.select()
+        self.var_truck.trace("w", self.truck_func)
+    def trailer_box(self):
+        self.var_trailer = tk.BooleanVar()
+        self.trailer_checkbutton = tk.Checkbutton(self.mainframe, text="Trailers", variable=self.var_trailer, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], onvalue=True, offvalue=False)
+        self.trailer_checkbutton.pack(side=tk.TOP, padx=5, pady=(0, 10), anchor=tk.W)
+        self.trailer_checkbutton.select()
+        self.var_trailer.trace("w", self.trailer_func)
+    def storage_box(self):
+        self.var_storage = tk.BooleanVar()
+        self.storage_checkbutton = tk.Checkbutton(self.mainframe, text="Storage", variable=self.var_storage, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], state=tk.NORMAL, onvalue=True, offvalue=False)
+        self.storage_checkbutton.pack(side=tk.TOP, padx=5, pady=(10), anchor=tk.W)
+        self.storage_checkbutton.select()
+        self.var_storage.trace("w", self.storage_func)
+    # Filter for limiting time on yard in days. With checkbox of activation and button to apply. Accept apply Funciton.
+    def time_on_yard(self):
+        self.aging_lb = tk.Label(self.mainframe, text="Time on Yard (days):", foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["notebook_tab_size"]), bg=conf["submenu_bg"])
+        self.aging_lb.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.W)
+        self.age_frame = tk.Frame(self.mainframe, highlightthickness=0, bg=conf["submenu_bg"])
+        self.age_frame.pack(side=tk.TOP, anchor=tk.W)
+        self.var_age = tk.BooleanVar()
+        self.age_checkbutton = tk.Checkbutton(self.age_frame, variable=self.var_age, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], onvalue=True, offvalue=False)
+        self.age_checkbutton.pack(fill=tk.X, side=tk.LEFT)
+        self.var_age.trace("w", self.age_func)
+        self.aging = None
+        self.age_entry = tk.Entry(self.age_frame, bg=conf["window_bg"], bd=0, font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["entry_fg"], width=15, state=tk.DISABLED)
+        self.age_entry.pack(side=tk.LEFT, fill=tk.BOTH)
+        self.age_button_get = tk.Button(self.age_frame, text=u"\u23F5", bg=conf["submenu_sel_bg"], relief=tk.RAISED, command=self.time_on_yard_func)
+        self.age_button_get.pack(side=tk.RIGHT, padx=(5, 0))
+    # Check Yard Label for marker and Generate button
+    def generate_buttons(self):
+        self.gen_frame = tk.Frame(self.mainframe, highlightthickness=0, bg=conf["submenu_bg"], width=50)
+        self.gen_frame.pack(side=tk.BOTTOM, anchor=tk.W)
+        self.generate_lb = tk.Label(self.gen_frame, text="Check Yard Marker:", foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["notebook_tab_size"]), bg=conf["submenu_bg"])
+        self.generate_lb.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.W)
+        self.generate_marker = tk.Label(self.gen_frame, foreground=conf["status_fg"], text=filter_frame.checkyard_marker, font=(conf["submenu_font"], conf["notebook_tab_size"]), bg=conf["submenu_bg"])
+        self.generate_marker.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.CENTER)
+        self.gen_button = tk.Button(self.gen_frame, text="GENERATE", height=1, bg=conf["submenu_bg"], fg=conf["submenu_fg"], font=(conf["submenu_font"], conf["font_size"]), relief=tk.RAISED, command=self.check_generate)
+        self.gen_button.pack(side=tk.TOP, padx=(5, 0), fill=tk.X, expand=1)
+        self.print_button = tk.Button(self.gen_frame, text="PRINT", height=1, bg=conf["submenu_bg"], fg=conf["submenu_fg"],font=(conf["submenu_font"], conf["font_size"]), relief=tk.RAISED, command=self.check_print)
+        self.print_button.pack(side=tk.TOP, padx=(5, 0), fill=tk.X, expand=1)
+    # Date period filter ()
+    def date_period(self, **kwargs):
+        def Y_CHANGE(bul):
+            if bul: self.year_label.config(text=str(int(self.year_label.cget("text")) + 1))
+            elif not bul: self.year_label.config(text=str(int(self.year_label.cget("text"))-1))
+            self.daylim = monthrange(int(self.year_label.cget("text")), int(self.month_label.cget("text")))
+            if self.daylim[1] < int(self.day_label.cget("text")): self.day_label.config(text=str(self.daylim[1]))
+            self.period_func()
+        def M_CHANGE(bul):
+            if bul:
+                if int(self.month_label.cget("text")) == 12: return
+                self.month_label.config(text=str(int(self.month_label.cget("text"))+1))
+            elif not bul:
+                if int(self.month_label.cget("text")) == 1: return
+                self.month_label.config(text=str(int(self.month_label.cget("text"))-1))
+            self.daylim = monthrange(int(self.year_label.cget("text")), int(self.month_label.cget("text")))
+            if self.daylim[1] < int(self.day_label.cget("text")): self.day_label.config(text=str(self.daylim[1]))
+            self.period_func()
+        def D_CHANGE(bul):
+            if bul:
+                self.daylim = monthrange(int(self.year_label.cget("text")), int(self.month_label.cget("text")))
+                if int(self.day_label.cget("text")) >= self.daylim[1]: return
+                self.day_label.config(text=str(int(self.day_label.cget("text"))+1))
+            elif not bul:
+                if int(self.day_label.cget("text")) == 1: return
+                self.day_label.config(text=str(int(self.day_label.cget("text"))-1))
+            self.period_func()
+
+
+
+        #setting up current date as default to display
+        self.year = str(datetime.now().year)
+        self.month = str(datetime.now().month)
+        self.day = str(datetime.now().day)
+        self.daylim = monthrange(int(self.year), int(self.month))
+        #main frame for Period
+        self.period_frame = tk.Frame(self.mainframe, highlightthickness=0, bg=conf["submenu_bg"])
+        self.period_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 20))
+        #Period Label
+        self.period_lb = tk.Label(self.period_frame, text="Period:", relief=tk.GROOVE, bg=conf["submenu_bg"], fg=conf["submenu_fg"], font=(conf["submenu_font"], conf["submenu_size"]))
+        self.period_lb.pack(fill=tk.X, side=tk.TOP, expand=1, pady=1)
+        # year buttons
+        self.year_frame = tk.Frame(self.period_frame, highlightthickness=0, bg=conf["window_bg"])
+        self.year_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 1))
+        self.year_L_button = tk.Button(self.year_frame, text="\N{LEFTWARDS ARROW}", bg=conf["submenu_bg"], fg=conf["submenu_fg"], bd=1, highlightthickness=1, activebackground=conf["in_button_sel_bg"], font=(conf["submenu_font"], conf["header_size"]), activeforeground=conf["in_button_sel_fg"], command=lambda: Y_CHANGE(False))
+        self.year_L_button.pack(fill=tk.X, side=tk.LEFT)
+        self.year_label = tk.Label(self.year_frame, text=self.year, relief=tk.FLAT, bg=conf["widget_bg"], fg=conf["submenu_fg"], font=(conf["submenu_font"], conf["submenu_size"]))
+        self.year_label.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
+        self.year_R_button = tk.Button(self.year_frame, text="\N{RIGHTWARDS ARROW}", bg=conf["submenu_bg"], fg=conf["submenu_fg"], bd=1, highlightthickness=1, activebackground=conf["in_button_sel_bg"], font=(conf["submenu_font"], conf["header_size"]), activeforeground=conf["in_button_sel_fg"], command=lambda: Y_CHANGE(True))
+        self.year_R_button.pack(fill=tk.X, side=tk.LEFT)
+        # month buttons
+        self.month_frame = tk.Frame(self.period_frame, highlightthickness=0, bg=conf["window_bg"])
+        self.month_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 1))
+        self.month_L_button = tk.Button(self.month_frame, text="\N{LEFTWARDS ARROW}", bg=conf["submenu_bg"], fg=conf["submenu_fg"], bd=1, highlightthickness=1, activebackground=conf["in_button_sel_bg"], font=(conf["submenu_font"], conf["header_size"]), activeforeground=conf["in_button_sel_fg"], command=lambda: M_CHANGE(False))
+        self.month_L_button.pack(fill=tk.X, side=tk.LEFT)
+        self.month_label = tk.Label(self.month_frame, text=self.month, relief=tk.FLAT, bg=conf["widget_bg"], fg=conf["submenu_fg"], font=(conf["submenu_font"], conf["submenu_size"]))
+        self.month_label.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
+        self.month_R_button = tk.Button(self.month_frame, text="\N{RIGHTWARDS ARROW}", bg=conf["submenu_bg"], fg=conf["submenu_fg"], bd=1, highlightthickness=1, activebackground=conf["in_button_sel_bg"], font=(conf["submenu_font"], conf["header_size"]), activeforeground=conf["in_button_sel_fg"], command=lambda: M_CHANGE(True))
+        self.month_R_button.pack(fill=tk.X, side=tk.LEFT)
+        # day buttons
+        self.day_frame = tk.Frame(self.period_frame, highlightthickness=0, bg=conf["window_bg"])
+        self.day_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 1))
+        self.day_L_button = tk.Button(self.day_frame, text="\N{LEFTWARDS ARROW}", bg=conf["submenu_bg"], fg=conf["submenu_fg"], bd=1, highlightthickness=1, activebackground=conf["in_button_sel_bg"], font=(conf["submenu_font"], conf["header_size"]), activeforeground=conf["in_button_sel_fg"], command=lambda: D_CHANGE(False))
+        self.day_L_button.pack(fill=tk.X, side=tk.LEFT)
+        self.day_label = tk.Label(self.day_frame, text=self.day, relief=tk.FLAT, bg=conf["widget_bg"], fg=conf["submenu_fg"], font=(conf["submenu_font"], conf["submenu_size"]))
+        self.day_label.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
+        self.day_R_button = tk.Button(self.day_frame, text="\N{RIGHTWARDS ARROW}", bg=conf["submenu_bg"], fg=conf["submenu_fg"], bd=1, highlightthickness=1, activebackground=conf["in_button_sel_bg"], font=(conf["submenu_font"], conf["header_size"]), activeforeground=conf["in_button_sel_fg"], command=lambda: D_CHANGE(True))
+        self.day_R_button.pack(fill=tk.X, side=tk.LEFT)
+    def date_scale(self, **kwarg):
+        self.chart_scale = "D"
+        def Chart_Scale(func):
+            self.scale_year_button.config(bg=conf["widget_bg"], fg=conf["on_parking"])
+            self.scale_month_button.config(bg=conf["widget_bg"], fg=conf["on_parking"])
+            self.scale_day_button.config(bg=conf["widget_bg"], fg=conf["on_parking"])
+            if func == "Y":
+                self.chart_scale = "Y"
+                self.scale_year_button.config(bg=conf["widget_sel_bg"], fg=conf["expired_date"])
+                self.scale_func() #################
+            elif func == "M":
+                self.chart_scale = "M"
+                self.scale_month_button.config(bg=conf["widget_sel_bg"], fg=conf["expired_date"])
+                self.scale_func() #################
+            if func == "D":
+                self.chart_scale = "D"
+                self.scale_day_button.config(bg=conf["widget_sel_bg"], fg=conf["expired_date"])
+                self.scale_func() #################
+
+        # Filter by lentgh buttons
+        self.scale_frame = tk.Frame(self.period_frame, highlightthickness=0, bg=conf["submenu_bg"])
+        self.scale_frame.pack(side=tk.TOP, fill=tk.X)
+        self.scale_lb = tk.Label(self.scale_frame, text="Scale:", relief=tk.GROOVE, bg=conf["submenu_bg"], fg=conf["submenu_fg"], font=(conf["submenu_font"], conf["submenu_size"]))
+        self.scale_lb.pack(fill=tk.X, side=tk.TOP, expand=1, pady=1)
+        self.scale_year_button = tk.Button(self.scale_frame, text="Year", bg=conf["widget_bg"], fg=conf["on_parking"], bd=0, highlightthickness=0, activebackground=conf["on_parking"], font=(conf["submenu_font"], conf["header_size"]), activeforeground=conf["in_button_sel_fg"], command=lambda: Chart_Scale("Y"))
+        self.scale_year_button.pack(fill=tk.X, side=tk.TOP, padx=5, pady=5, ipady=10)
+        self.scale_month_button = tk.Button(self.scale_frame, text="Month", bg=conf["widget_bg"], fg=conf["on_parking"], bd=0, highlightthickness=0, activebackground=conf["on_parking"], font=(conf["submenu_font"], conf["header_size"]), activeforeground=conf["in_button_sel_fg"], command=lambda: Chart_Scale("M"))
+        self.scale_month_button.pack(fill=tk.X, side=tk.TOP, padx=5, pady=5, ipady=10)
+        self.scale_day_button = tk.Button(self.scale_frame, text="Day", bg=conf["widget_bg"], fg=conf["on_parking"], bd=0, highlightthickness=0, activebackground=conf["on_parking"], font=(conf["submenu_font"], conf["header_size"]), activeforeground=conf["in_button_sel_fg"], command=lambda: Chart_Scale("D"))
+        self.scale_day_button.pack(fill=tk.X, side=tk.TOP, padx=5, pady=5, ipady=10)
+    def history_buttons(self):
+        self.history_frame = tk.Frame(self.mainframe, highlightthickness=0, bg=conf["submenu_bg"], width=50)
+        self.history_frame.pack(side=tk.BOTTOM, anchor=tk.W, fill=tk.X)
+        self.gen_button = tk.Button(self.history_frame, text="ARCHIVE", height=1, bg=conf["submenu_bg"], fg=conf["submenu_fg"], font=(conf["submenu_font"], conf["font_size"]), relief=tk.RAISED, command=lambda:print("archive func"))
+        self.gen_button.pack(side=tk.TOP, padx=(5, 0), fill=tk.X, expand=1)
+        self.print_button = tk.Button(self.history_frame, text="PRINT", height=1, bg=conf["submenu_bg"], fg=conf["submenu_fg"], font=(conf["submenu_font"], conf["font_size"]), relief=tk.RAISED, command=lambda:print("print func"))
+        self.print_button.pack(side=tk.TOP, padx=(5, 0), fill=tk.X, expand=1)
+    #create entry for search. Require Lablel, tk variable for entry and function name for button
+    def unit_search(self, **kwargs):
+        label = kwargs.get("label")
+        var = kwargs.get("var")
+        checkbox = kwargs.get("checkbox")
+        func = kwargs.get("func")
+        def checkbox_trigger(*args, entry, button):
+            if checkbox.get():
+                entry.config(state=tk.NORMAL)
+                button.config(state=tk.NORMAL)
+            else:
+                entry.config(state=tk.DISABLED)
+                button.config(state=tk.DISABLED)
+        self.search_lb = tk.Label(self.mainframe, text=label, foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["notebook_tab_size"]), bg=conf["submenu_bg"])
+        self.search_lb.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.W)
+        self.search_frame = tk.Frame(self.mainframe, highlightthickness=0, bg=conf["submenu_bg"])
+        self.search_frame.pack(side=tk.TOP, anchor=tk.W)
+        self.search_checkbox = tk.Checkbutton(self.search_frame, variable=checkbox, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], onvalue=True, offvalue=False)
+        self.search_checkbox.pack(fill=tk.X, side=tk.LEFT)
+        self.unit_search_entry = tk.Entry(self.search_frame, bg=conf["window_bg"], bd=0, font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["entry_fg"], width=15, state=tk.DISABLED)
+        self.unit_search_entry.pack(side=tk.LEFT, fill=tk.BOTH)
+        self.unit_search_button = tk.Button(self.search_frame, text=u"\u23F5", bg=conf["submenu_sel_bg"], relief=tk.RAISED, command=func, state=tk.DISABLED)
+        self.unit_search_button.pack(side=tk.RIGHT, padx=(5, 0))
+        checkbox.trace("w", lambda *args, entry=self.unit_search_entry, button=self.unit_search_button: checkbox_trigger(entry=entry, button=button))
+
+
+
+
+    # method delete everything from mainframe of class
+    def delete(self):
+        try:
+            if self.mainframe.winfo_children():
+                for widgets in self.mainframe.winfo_children(): widgets.destroy()
+        except Exception as e:
+            error(22)
+            debuger(e)
+    # method that accept new marker for check yard and reconfig markers labels
+    def label_config(new_marker):
+        filter_frame.checkyard_marker = new_marker
+        for instance in filter_frame.checkyard_instances:
+            instance.generate_marker.config(text=new_marker)
+
+
+# Check Insert Function working with Class
+def checkyard_insert(classobj, frame):
+    C = classobj.comp_box.get()
+    T = classobj.var_truck.get()
+    t = classobj.var_trailer.get()
+    S = classobj.var_storage.get()
+    A = classobj.var_age.get()
+
+    today = date.today()
+    tenant_his_scroll_frame.delete()
+
+    if t:
+        classobj.storage_checkbutton.config(state=tk.NORMAL)
+    elif not classobj.var_trailer.get():
+        classobj.storage_checkbutton.config(state=tk.DISABLED)
+    if A:
+        classobj.age_entry.configure(state=tk.NORMAL)
+        a = classobj.age_entry.get().strip()
+        if a != "":
+            try:
+                int(a)
+            except:
+                error(5)
+                return
+            aging = int(a)
+        else:
+            aging = 0
+    else:
+        classobj.age_entry.configure(state=tk.DISABLED)
+        aging = 0
+    if not T and not t: return
+    data = get_onyard()["tenant"]
+
+    frame.delete()
+
+    if C == "All":
+        l = list()
+        for all_comp in data[0]: l.append(all_comp["company_ID"])
+        for all_comp in data[1]: l.append(all_comp["company_ID"])
+        allcompset = set(l)
+        for all_comp in sorted(allcompset):
+            c_frame = tk.Frame(frame.frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+            c_lb = tk.Label(c_frame, text=all_comp, bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=chk_data_size+1)
+            c_lb.pack(side=tk.TOP, anchor=tk.NW, expand=0)
+            checkT = False
+            checkt = False
+            if T:
+                truck_label = tk.Label(c_frame, text="Trucks:", bg=conf["widget_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["submenu_fg"])
+                truck_frame = tk.Frame(c_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+                column_names_fr = tk.Frame(truck_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+                column_names_fr.pack(side=tk.TOP, fill=tk.X, pady=(0, 3))
+                unit_lb = tk.Label(column_names_fr, text="unit number:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+                unit_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+                date_lb = tk.Label(column_names_fr, text="on yard since:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"])
+                date_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+                sum_lb = tk.Label(column_names_fr, text="on yard / days", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+                sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+                checkT = False
+                for all in data[0]:
+                    delta_days = (today - all["last_date"].date()).days
+                    if all["company_ID"] == all_comp and delta_days - aging >= 0:
+                        checkT = True
+                        rec_fr = tk.Frame(truck_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+                        rec_fr.pack(side=tk.TOP, anchor=tk.NW, fill=tk.X)
+                        T_lb = tk.Label(rec_fr, text=all["truck_number"], bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+                        T_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+                        T_time_lb = tk.Label(rec_fr, text=all["last_date"], bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+                        T_time_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+                        T_sum_lb = tk.Label(rec_fr, text=delta_days, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+                        T_sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+                if checkT:
+                    truck_label.pack(side=tk.TOP, fill=tk.X, expand=1, anchor=tk.NW, padx=3, pady=3)
+                    truck_frame.pack(side=tk.TOP, fill=tk.X, padx=3, pady=(0, 3))
+
+            if t:
+                trailer_label = tk.Label(c_frame, text="Trailers:", bg=conf["widget_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["submenu_fg"])
+                trailer_frame = tk.Frame(c_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+                column_names_fr2 = tk.Frame(trailer_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+                column_names_fr2.pack(side=tk.TOP, fill=tk.X, pady=(0, 3))
+                unitT_lb = tk.Label(column_names_fr2, text="unit number:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+                unitT_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+                dateT_lb = tk.Label(column_names_fr2, text="on yard since:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"])
+                dateT_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+                sumT_lb = tk.Label(column_names_fr2, text="on yard / days", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+                sumT_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+                checkt = False
+                for all in data[1]:
+                    delta_days = (today - all["last_date"].date()).days
+                    if all["company_ID"] == all_comp and delta_days - aging >= 0:
+                        if not S:
+                            if all["storage"]: continue
+                        checkt = True
+                        recT_fr = tk.Frame(trailer_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+                        recT_fr.pack(side=tk.TOP, anchor=tk.NW, fill=tk.X)
+                        Tt_lb = tk.Label(recT_fr, text=all["trailer_number"], bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+                        Tt_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+                        Tt_time_lb = tk.Label(recT_fr, text=all["last_date"], bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+                        Tt_time_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+                        delta_days = (today - all["last_date"].date()).days
+                        Tt_sum_lb = tk.Label(recT_fr, text=delta_days, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+                        Tt_sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+                        if all["storage"]:
+                            Tt_lb.config(fg=conf["storage_fg"])
+                            Tt_time_lb.config(fg=conf["storage_fg"])
+                            Tt_sum_lb.config(fg=conf["storage_fg"])
+                if checkt:
+                    trailer_label.pack(side=tk.TOP, fill=tk.X, expand=1, anchor=tk.NW, padx=3, pady=3)
+                    trailer_frame.pack(side=tk.TOP, fill=tk.X, padx=3, pady=(0, 3))
+            if checkT or checkt:
+                c_frame.pack(side=tk.TOP, fill=tk.X, expand=1, pady=(0, 2), padx=(2, 0))
+    else:
+        c1_frame = tk.Frame(frame.frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+        c1_lb = tk.Label(c1_frame, text=C, bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=chk_data_size)
+        c1_lb.pack(side=tk.TOP, anchor=tk.NW, expand=0)
+        checkT = False
+        checkt = False
+        if T:
+            C_truck_label = tk.Label(c1_frame, text="Trucks:", bg=conf["widget_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["submenu_fg"])
+            C_truck_frame = tk.Frame(c1_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+            C_column_names_fr = tk.Frame(C_truck_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+            C_column_names_fr.pack(side=tk.TOP, fill=tk.X, pady=(0, 3))
+            C_unit_lb = tk.Label(C_column_names_fr, text="unit number:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+            C_unit_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+            C_date_lb = tk.Label(C_column_names_fr, text="on yard since:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"])
+            C_date_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+            C_sum_lb = tk.Label(C_column_names_fr, text="on yard / days", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+            C_sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+            checkT = False
+            for all in data[0]:
+                if all["company_ID"] != C: continue
+                delta_days = (today - all["last_date"].date()).days
+                if delta_days - aging >= 0:
+                    checkT = True
+                    C_rec_fr = tk.Frame(C_truck_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+                    C_rec_fr.pack(side=tk.TOP, anchor=tk.NW, fill=tk.X)
+                    C_T_lb = tk.Label(C_rec_fr, text=all["truck_number"], bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+                    C_T_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+                    C_T_time_lb = tk.Label(C_rec_fr, text=all["last_date"], bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+                    C_T_time_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+                    C_T_sum_lb = tk.Label(C_rec_fr, text=delta_days, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+                    C_T_sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+            if checkT:
+                C_truck_label.pack(side=tk.TOP, fill=tk.X, expand=1, anchor=tk.NW, padx=3, pady=3)
+                C_truck_frame.pack(side=tk.TOP, fill=tk.X, padx=3, pady=(0, 3))
+        if t:
+            C_trailer_label = tk.Label(c1_frame, text="Trailers:", bg=conf["widget_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["submenu_fg"])
+            C_trailer_frame = tk.Frame(c1_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+            C_column_names_fr2 = tk.Frame(C_trailer_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+            C_column_names_fr2.pack(side=tk.TOP, fill=tk.X, pady=(0, 3))
+            C_unitT_lb = tk.Label(C_column_names_fr2, text="unit number:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+            C_unitT_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+            C_dateT_lb = tk.Label(C_column_names_fr2, text="on yard since:", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"])
+            C_dateT_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+            C_sumT_lb = tk.Label(C_column_names_fr2, text="on yard / days", bg=conf["widget_sel_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["widget_sel_fg"], width=20)
+            C_sumT_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+            checkt = False
+            for all in data[1]:
+                if all["company_ID"] != C: continue
+                delta_days = (today - all["last_date"].date()).days
+                if delta_days - aging >= 0:
+                    if not S:
+                        if all["storage"]: continue
+                    checkt = True
+                    C_recT_fr = tk.Frame(C_trailer_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
+                    C_recT_fr.pack(side=tk.TOP, anchor=tk.NW, fill=tk.X)
+                    C_Tt_lb = tk.Label(C_recT_fr, text=all["trailer_number"], bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+                    C_Tt_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+                    C_Tt_time_lb = tk.Label(C_recT_fr, text=all["last_date"], bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+                    C_Tt_time_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, fill=tk.X, expand=1, pady=(0, 1))
+                    delta_days = (today - all["last_date"].date()).days
+                    C_Tt_sum_lb = tk.Label(C_recT_fr, text=delta_days, bg=conf["window_bg"], font=(conf["header_font"], conf["notebook_tab_size"]), fg=conf["header_fg"], width=20)
+                    C_Tt_sum_lb.pack(side=tk.LEFT, anchor=tk.NW, padx=1, pady=(0, 1))
+                    if all["storage"]:
+                        C_Tt_lb.config(fg=conf["storage_fg"])
+                        C_Tt_time_lb.config(fg=conf["storage_fg"])
+                        C_Tt_sum_lb.config(fg=conf["storage_fg"])
+            if checkt:
+                C_trailer_label.pack(side=tk.TOP, fill=tk.X, expand=1, anchor=tk.NW, padx=3, pady=3)
+                C_trailer_frame.pack(side=tk.TOP, fill=tk.X, padx=3, pady=(0, 3))
+        if checkT or checkt:
+            c1_frame.pack(side=tk.TOP, fill=tk.X, expand=1, pady=(0, 2), padx=(2, 0))
+
+    frame.refresh()
+    frame.top()
+
+#Checkyard function generator. Clear previous check yard from SQL and create new. Generate EXCEL files and put Date marker in settings.ini
+def checkyard_generate(classobj):
+    SQL_REQ("DELETE FROM dbo.check_yard", (), "W")
+    date = datetime.now().replace(microsecond=0)
+    filter_frame.label_config(date)
+    settings_file_edit("chk_datetime", date)
+    complist = units_lst("company")
+
+    # Tenant check
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Tenant"
+    ws.page_margins = PageMargins(left=0.3, right=0.3, top=0.5, bottom=0.5, header=0.3)
+    ws.oddHeader.center.text = "Check Yard"
+    ws.oddHeader.right.text = "&P of &N"
+    ws.oddHeader.left.text = "&D"
+    # ws.print_title_rows = "1:1"
+    MaxX = 12
+    # MaxY = 66
+    X = 1
+    Y = 1
+    Z = 0
+    for companyname in complist:
+        truck = units_lst(companyname, "trucks")
+        truck.update(units_lst(companyname, "trucks+"))
+        trailer = {k: v[0] if isinstance(v, list) else v for k, v in units_lst(companyname, "trailers").items()}
+        trailer.update(units_lst(companyname, "trailers+"))
+        if companyname == "Quick Step Log.":
+            print(companyname)
+            print(truck)
+            print(trailer)
+        if not bool(truck) and not bool(trailer): continue
+        ws.cell(row=Y, column=X).value = companyname
+        ws.cell(row=Y, column=X).font = Font(name="Bahnschrift SemiBold SemiConden", size=12, b=True)
+        for col in range(1, MaxX + 1):
+            ws.cell(row=Y, column=col).fill = PatternFill(fill_type="solid", start_color="B8CCE4")
+            if col == 1:
+                ws.cell(row=Y, column=col).border = Border(top=Side(border_style='medium'), left=Side(border_style='medium'))
+            elif col == MaxX:
+                ws.cell(row=Y, column=col).border = Border(top=Side(border_style='medium'), right=Side(border_style='medium'))
+            else:
+                ws.cell(row=Y, column=col).border = Border(top=Side(border_style='medium'))
+        Y += 1
+        if bool(truck):
+            ws.cell(row=Y, column=X).value = "Trucks:"
+            ws.cell(row=Y, column=X).font = Font(name="Bahnschrift SemiBold SemiConden", size=10, b=True)
+            ws.cell(row=Y, column=X).border = Border(top=Side(border_style='medium'), left=Side(border_style='medium'), right=Side(border_style='thin'))
+
+            Z = Y
+            X += 1
+
+            for trucknumber in sorted(truck.items(), key=lambda x: len(x[0])):
+                unit_type = "truck"
+                SQL_REQ("INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)", (date, companyname, unit_type, trucknumber[0], trucknumber[1]), "W")
+                ws.cell(row=Y, column=X).value = trucknumber[0]
+                ws.cell(row=Y, column=X).font = Font(name="Bahnschrift SemiBold SemiConden", size=8, b=True)
+                ws.cell(row=Y, column=X).alignment = Alignment(horizontal='center')
+                if X == 2 and Y != Z: ws.cell(row=Y, column=X - 1).border = Border(left=Side(border_style='medium'))
+                ws.cell(row=Y, column=X).border = Border(left=Side(border_style='thin'), top=Side(border_style='thin'), bottom=Side(border_style='thin'), right=Side(border_style='thin'))
+                if X == MaxX:
+                    ws.cell(row=Y, column=X).border = Border(left=Side(border_style='thin'), top=Side(border_style='thin'), bottom=Side(border_style='thin'), right=Side(border_style='medium'))
+                    Y += 1
+                    X = 2
+                else:
+                    X += 1
+            if X != 2:
+                while X != MaxX + 1:
+                    ws.cell(row=Y, column=X).border = Border(left=Side(border_style='thin'), top=Side(border_style='thin'), bottom=Side(border_style='thin'), right=Side(border_style='thin'))
+                    if X == MaxX: ws.cell(row=Y, column=X).border = Border(left=Side(border_style='thin'), top=Side(border_style='thin'), bottom=Side(border_style='thin'),
+                                                                           right=Side(border_style='medium'))
+                    X += 1
+            else:
+                Y -= 1
+            for col in range(2, MaxX + 1):
+                ws.cell(row=Z, column=col).border = Border(top=Side(border_style='medium'), bottom=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'))
+                if col == MaxX: ws.cell(row=Z, column=col).border = Border(top=Side(border_style='medium'), bottom=Side(border_style='thin'), right=Side(border_style='medium'),
+                                                                           left=Side(border_style='thin'))
+
+            X = 1
+            Y += 1
+        if bool(trailer):
+            ws.cell(row=Y, column=X).value = "Trailers:"
+            ws.cell(row=Y, column=X).font = Font(name="Bahnschrift SemiBold SemiConden", size=10, b=True)
+            ws.cell(row=Y, column=X).border = Border(top=Side(border_style='medium'), left=Side(border_style='medium'), right=Side(border_style='thin'))
+            Z = Y
+            X += 1
+            for trailernumber in sorted(trailer.items(), key=lambda x: len(x[0])):
+
+                unit_type = "trailer"
+                SQL_REQ("INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)", (date, companyname, unit_type, trailernumber[0], trailernumber[1]), "W")
+                if X == 2 and Y != Z: ws.cell(row=Y, column=X - 1).border = Border(left=Side(border_style='medium'))
+                ws.cell(row=Y, column=X).value = trailernumber[0]
+                ws.cell(row=Y, column=X).font = Font(name="Bahnschrift SemiBold SemiConden", size=8, b=True)
+                ws.cell(row=Y, column=X).border = Border(left=Side(border_style='thin'), top=Side(border_style='thin'), bottom=Side(border_style='thin'), right=Side(border_style='thin'))
+                ws.cell(row=Y, column=X).alignment = Alignment(horizontal='center')
+                if X == MaxX:
+                    ws.cell(row=Y, column=X).border = Border(left=Side(border_style='thin'), top=Side(border_style='thin'), bottom=Side(border_style='thin'), right=Side(border_style='medium'))
+                    Y += 1
+                    X = 2
+                else:
+                    X += 1
+            if X != 2:
+                while X != MaxX + 1:
+                    ws.cell(row=Y, column=X).border = Border(left=Side(border_style='thin'), top=Side(border_style='thin'), bottom=Side(border_style='thin'), right=Side(border_style='thin'))
+                    if X == MaxX: ws.cell(row=Y, column=X).border = Border(left=Side(border_style='thin'), top=Side(border_style='thin'), bottom=Side(border_style='thin'),
+                                                                           right=Side(border_style='medium'))
+                    X += 1
+            else:
+                Y -= 1
+            for col in range(2, MaxX + 1):
+                ws.cell(row=Z, column=col).border = Border(top=Side(border_style='medium'), bottom=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'))
+                if col == MaxX: ws.cell(row=Z, column=col).border = Border(top=Side(border_style='medium'), bottom=Side(border_style='thin'), right=Side(border_style='medium'),
+                                                                           left=Side(border_style='thin'))
+            X = 1
+            Y += 1
+    if Y - 1 != Z:
+        ws.cell(row=Y - 1, column=1).border = Border(bottom=Side(border_style='thin'), left=Side(border_style='medium'))
+    else:
+        ws.cell(row=Y - 1, column=1).border = Border(bottom=Side(border_style='thin'), left=Side(border_style='medium'), top=Side(border_style='medium'))
+
+    wS = wb.create_sheet(title="GN")
+    wb.active = wS
+    DEFAULT_FONT.name = "Bahnschrift SemiBold SemiConden"
+    DEFAULT_FONT.sz = 10
+    DEFAULT_FONT.b = True
+    wS.page_margins = PageMargins(left=0.5, right=0.5, top=0.5, bottom=0.5, header=0.3)
+    wS.oddHeader.center.text = "Check Yard GNT"
+    wS.oddHeader.right.text = "&P of &N"
+    wS.oddHeader.left.text = "&D"
+
+    # GN check
+
+    GNtrucks = units_lst("GNtrucks")
+    GNtrailers = {k: v[0] if isinstance(v, list) else v for k, v in units_lst("GNtrailers").items()}
+    GNfb = {k: v[0] if isinstance(v, list) else v for k, v in units_lst("GNfb").items()}
+    Csize = 11
+    wS.column_dimensions["A"].width = Csize
+    wS.column_dimensions["B"].width = Csize
+    wS.column_dimensions["C"].width = Csize
+    wS.column_dimensions["D"].width = Csize
+    wS.column_dimensions["E"].width = Csize
+    wS.column_dimensions["F"].width = Csize
+    wS.column_dimensions["G"].width = Csize
+    wS.column_dimensions["H"].width = Csize
+    wS.column_dimensions["I"].width = Csize
+    wS.cell(row=1, column=1).value = "GNT"
+    wS.cell(row=1, column=1).alignment = Alignment(horizontal='center')
+    wS.cell(row=1, column=1).font = Font(name="Bahnschrift SemiBold SemiConden", size=20, b=True)
+    wS.cell(row=2, column=1).value = "Trucks:"
+    wS.cell(row=2, column=1).alignment = Alignment(horizontal='center')
+    wS.cell(row=2, column=1).font = Font(name="Bahnschrift SemiBold SemiConden", size=18, b=True)
+    wS.cell(row=2, column=1).border = Border(top=Side(border_style='medium'), bottom=Side(border_style='medium'), right=Side(border_style='medium'), left=Side(border_style='medium'))
+    wS.cell(row=2, column=1).fill = PatternFill(fill_type="solid", start_color="B8CCE4")
+    wS.cell(row=2, column=4).value = "Trailers:"
+    wS.cell(row=2, column=4).alignment = Alignment(horizontal='center')
+    wS.cell(row=2, column=4).font = Font(name="Bahnschrift SemiBold SemiConden", size=18, b=True)
+    wS.cell(row=2, column=4).border = Border(top=Side(border_style='medium'), bottom=Side(border_style='medium'), right=Side(border_style='medium'), left=Side(border_style='medium'))
+    wS.cell(row=2, column=4).fill = PatternFill(fill_type="solid", start_color="B8CCE4")
+    wS.cell(row=2, column=7).value = "Flatbeds:"
+    wS.cell(row=2, column=7).alignment = Alignment(horizontal='center')
+    wS.cell(row=2, column=7).font = Font(name="Bahnschrift SemiBold SemiConden", size=18, b=True)
+    wS.cell(row=2, column=7).border = Border(top=Side(border_style='medium'), bottom=Side(border_style='medium'), right=Side(border_style='medium'), left=Side(border_style='medium'))
+    wS.cell(row=2, column=7).fill = PatternFill(fill_type="solid", start_color="B8CCE4")
+    wS.merge_cells('A1:I1')
+    wS.merge_cells('D2:F2')
+    wS.merge_cells('G2:I2')
+    wS.merge_cells('A2:C2')
+
+    row_coord1 = 3
+    column_coord1 = 1
+    for GNTtruck in sorted(GNtrucks.items(), key=lambda x: len(x[0])):
+        type = "truck"
+        SQL_REQ("INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)", (date, "GN", type, GNTtruck[0], GNTtruck[1]), "W")
+        wS.cell(row=row_coord1, column=column_coord1).value = GNTtruck[0]
+        wS.cell(row=row_coord1, column=column_coord1).border = Border(bottom=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'))
+        wS.cell(row=row_coord1, column=column_coord1).font = Font(name="Bahnschrift SemiBold SemiConden", size=14, b=True)
+        wS.cell(row=row_coord1, column=column_coord1).alignment = Alignment(horizontal='center')
+        if column_coord1 == 3:
+            column_coord1 = 1
+            row_coord1 += 1
+        else:
+            column_coord1 += 1
+    row_coord2 = 3
+    column_coord2 = 4
+    for GNTtrailer in sorted(GNtrailers.items(), key=lambda x: len(x[0])):
+        type = "trailer"
+        SQL_REQ("INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)", (date, "GN", type, GNTtrailer[0], GNTtrailer[1]), "W")
+        wS.cell(row=row_coord2, column=column_coord2).value = GNTtrailer[0]
+        wS.cell(row=row_coord2, column=column_coord2).border = Border(bottom=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'))
+        wS.cell(row=row_coord2, column=column_coord2).font = Font(name="Bahnschrift SemiBold SemiConden", size=14, b=True)
+        wS.cell(row=row_coord2, column=column_coord2).alignment = Alignment(horizontal='center')
+        if column_coord2 == 6:
+            column_coord2 = 4
+            row_coord2 += 1
+        else:
+            column_coord2 += 1
+    row_coord3 = 3
+    column_coord3 = 7
+    for GNTfb in sorted(GNfb.items(), key=lambda x: len(x[0])):
+        type = "flatbed"
+        SQL_REQ("INSERT INTO dbo.check_yard (date, company, type, unit_number, status) VALUES (?,?,?,?,?)", (date, "GN", type, GNTfb[0], GNTfb[1]), "W")
+        wS.cell(row=row_coord3, column=column_coord3).value = GNTfb[0]
+        wS.cell(row=row_coord3, column=column_coord3).border = Border(bottom=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'))
+        wS.cell(row=row_coord3, column=column_coord3).font = Font(name="Bahnschrift SemiBold SemiConden", size=14, b=True)
+        wS.cell(row=row_coord3, column=column_coord3).alignment = Alignment(horizontal='center')
+        if column_coord3 == 9:
+            column_coord3 = 7
+            row_coord3 += 1
+        else:
+            column_coord3 += 1
+    minL = min(row_coord1, row_coord2, row_coord3)
+    maxL = max(row_coord1, row_coord2, row_coord3)
+    R = minL
+    C = 1
+    while True:
+        wS.cell(row=R, column=C).border = Border(bottom=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'))
+        if C == 9:
+            C = 1
+            R += 1
+        else:
+            C += 1
+        if R > maxL: break
+
+    # Car parking check
+
+    WS = wb.create_sheet(title="Car Parking")
+    wb.active = WS
+    WS.page_margins = PageMargins(left=0.5, right=0.5, top=0.5, bottom=0.5, header=0.3)
+    WS.oddHeader.center.text = "Car Parking Check"
+    WS.oddHeader.right.text = "&P of &N"
+    WS.oddHeader.left.text = "&D"
+
+    carlist = list()
+    for companyname in complist:
+        main = cars(0, companyname, "main")
+        main.extend(cars(0, companyname, "unreg"))
+        if len(main) != 0:
+            for item in main:
+
+                if item["private"] is not None:
+                    if item["private"]:
+                        prv = item["expiration"]
+                    elif not item["private"]:
+                        car_amount = SQL_REQ("SELECT car FROM dbo.Company_List WHERE company_name=?", (companyname,), "S_one")
+                        prv = car_amount[0]
+                    carlist.append([item['plates'], item['car_model'], item["driver_name"], companyname, prv])
+    carlist.sort(key=lambda x: x[0])
+    Carsize = 20
+    WS.column_dimensions["A"].width = Carsize
+    WS.column_dimensions["B"].width = Carsize
+    WS.column_dimensions["C"].width = Carsize + 3
+    WS.column_dimensions["D"].width = Carsize
+    WS.column_dimensions["E"].width = Carsize
+
+    WS.cell(row=1, column=1).value = "Car Parking"
+    WS.cell(row=1, column=1).font = Font(name="Bahnschrift SemiBold SemiConden", size=16, b=True)
+    WS.cell(row=1, column=1).alignment = Alignment(horizontal='center')
+    WS.merge_cells("A1:E1")
+    WS.cell(row=2, column=1).value = "Plate:"
+    WS.cell(row=2, column=1).font = Font(name="Bahnschrift SemiBold SemiConden", size=16, b=True)
+    WS.cell(row=2, column=1).border = Border(top=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'), bottom=Side(border_style='thin'))
+    WS.cell(row=2, column=1).fill = PatternFill(fill_type="solid", start_color="B8CCE4")
+    WS.cell(row=2, column=1).alignment = Alignment(horizontal='center')
+    WS.cell(row=2, column=2).value = "Car:"
+    WS.cell(row=2, column=2).font = Font(name="Bahnschrift SemiBold SemiConden", size=16, b=True)
+    WS.cell(row=2, column=2).border = Border(top=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'), bottom=Side(border_style='thin'))
+    WS.cell(row=2, column=2).fill = PatternFill(fill_type="solid", start_color="B8CCE4")
+    WS.cell(row=2, column=2).alignment = Alignment(horizontal='center')
+    WS.cell(row=2, column=3).value = "Driver:"
+    WS.cell(row=2, column=3).font = Font(name="Bahnschrift SemiBold SemiConden", size=16, b=True)
+    WS.cell(row=2, column=3).border = Border(top=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'), bottom=Side(border_style='thin'))
+    WS.cell(row=2, column=3).fill = PatternFill(fill_type="solid", start_color="B8CCE4")
+    WS.cell(row=2, column=3).alignment = Alignment(horizontal='center')
+    WS.cell(row=2, column=4).value = "Company:"
+    WS.cell(row=2, column=4).font = Font(name="Bahnschrift SemiBold SemiConden", size=16, b=True)
+    WS.cell(row=2, column=4).border = Border(top=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'), bottom=Side(border_style='thin'))
+    WS.cell(row=2, column=4).fill = PatternFill(fill_type="solid", start_color="B8CCE4")
+    WS.cell(row=2, column=4).alignment = Alignment(horizontal='center')
+    WS.cell(row=2, column=5).value = "Spot/EXP.Date:"
+    WS.cell(row=2, column=5).font = Font(name="Bahnschrift SemiBold SemiConden", size=16, b=True)
+    WS.cell(row=2, column=5).border = Border(top=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'), bottom=Side(border_style='thin'))
+    WS.cell(row=2, column=5).fill = PatternFill(fill_type="solid", start_color="B8CCE4")
+    WS.cell(row=2, column=5).alignment = Alignment(horizontal='center')
+    row1 = 3
+    colmn = 1
+    for line in carlist:
+        for each in line:
+            if colmn == 5 and each is not None:
+                a = each
+
+                if not isinstance(a, int):
+                    if date.date() > each:
+                        WS.cell(row=row1, column=colmn).fill = PatternFill(fill_type="darkUp", start_color="FF0000")
+            WS.cell(row=row1, column=colmn).value = each
+            WS.cell(row=row1, column=colmn).font = Font(name="Bahnschrift SemiBold SemiConden", size=14, b=True)
+            WS.cell(row=row1, column=colmn).border = Border(top=Side(border_style='thin'), right=Side(border_style='thin'), left=Side(border_style='thin'), bottom=Side(border_style='thin'))
+            WS.cell(row=row1, column=colmn).alignment = Alignment(horizontal='center')
+            colmn += 1
+        row1 += 1
+        colmn = 1
+    wb.active = ws
+
+    isExist = os.path.exists(sets["chk_path"])
+    if not isExist:
+        os.makedirs(sets["chk_path"])
+    wb.save(sets["chk_path"] + "CheckYard " + date.strftime("%Y") + date.strftime("%m") + date.strftime("%d") + ".xlsx")
+
+
+    pass
+
+def checkyard_print():
+    checkdatetime = settings_file()["chk_datetime"]
+    if checkdatetime == "None": return
+    check_date = datetime.strptime(checkdatetime, "%Y-%m-%d %H:%M:%S")
+    filepath = sets["chk_path"].replace("\\\\", "/") + "CheckYard " + check_date.date().strftime("%Y%m%d") + ".xlsx"
+    excel = win32.DispatchEx('Excel.Application')
+    wb = excel.Workbooks.Open(filepath)
+    sheets = wb.Sheets
+    for sheet in sheets:
+        sheet.PrintOut()
+    wb.Close(False)
+    excel.Quit()
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #Login function Retrive log and pas, compare it with info in DB apply rights to access tabs in program.
 def login_func(*args):
@@ -883,7 +1683,9 @@ def OVERPARKING (event, func):
 
     if func == "T":
         statistics_reg("T")
-        if event["Company"] == "Euro Can": return  #return if Euro+Can
+        if event["Company"] == "Euro Can": return  #return if Euro+Can (not applyable)
+
+        # Retriving info how many spots is allowed and combine different plans in truckN and trailerN max value allowed
         row, col = SQL_REQ("SELECT regular, truck, trailer, designated, company_ID FROM dbo.Company_List WHERE company_name=? AND activity=1", (event["Company"],), "S_one_D")
         spot_list = {}
         if row:
@@ -900,6 +1702,8 @@ def OVERPARKING (event, func):
             return
         truckN = spot_list["regular"] + spot_list["truck"] + spot_list["designated"]
         trailerN = spot_list["regular"] + spot_list["designated"] + spot_list["trailer"]
+
+        #Retriving info how many trucks and trailers actually on yard including last event from perm and temp tables and form in TrucksONyard and TrailersOnyard var
         query = SQL_REQ("SELECT COUNT(*) FROM dbo.Tenant_Trucks WHERE company_ID=? AND status=1", (str(spot_list["company_ID"]),), "S_one")
         if query: Tval = int(query[0])
         else: Tval = 0
@@ -914,7 +1718,8 @@ def OVERPARKING (event, func):
         else: TRval_UNREG = 0
         TrucksONyard = Tval + Tval_UNREG
         TrailersONyard = TRval + TRval_UNREG
-        #get units that on yard
+
+        #get units numbers that on yard
         units = get_units(spot_list["company_ID"]) ##################################################################### redirect
 
         # calculate in var bigest overparking among trucks and trailers
@@ -945,13 +1750,12 @@ def OVERPARKING (event, func):
                 #add current time in the list of over times
                 if last_record["over_time"] !=0: over_time = last_record["over_time"]+"|"+str(event["Time"])
                 else: over_time = str(event["Time"])
-                #check if number of overs equal number of over_time # can be deleted
-                if onYardOver != len(over_time.split()): print("TROUBLE")
                 #update over record
-                SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE company_ID=? AND date=?",(str(onYardOver), units[0], units[1], event["Time"], over_time, str(spot_list["company_ID"]), event["Date"]), "W")
+                SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], over_time, str(spot_list["company_ID"]), event["Date"]), "W")
             elif last_record["over_count"] > onYardOver:
-                #check if current time is under 2h allowed time from midnight
+                #check if current time is under "2h" allowed time from midnight
                 if event_datetime.hour < int(sets["Overparking_Timeout"]):
+                    # taking previolus day overparking
                     row, col = SQL_REQ("SELECT * FROM dbo.OVERPARKING WHERE date < (SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=?) AND company_ID=? ORDER BY date ASC", (str(spot_list["company_ID"]), str(spot_list["company_ID"])), "S_one_D")
                     previous_record = {}
                     if row:
@@ -961,40 +1765,30 @@ def OVERPARKING (event, func):
                             index += 1
                             if y is not None: previous_record.update({z[0]: y})
                             else: previous_record.update({z[0]: 0})
-                        print(previous_record)
+                        #if previous day overparking more than current
                         if previous_record["over_count"] != 0 and previous_record["over_count"] >= onYardOver:
                             if previous_record["over_time"] !=0:
                                 pr_over_times = previous_record["over_time"].split("|")
                                 pr_over_times.sort()
+                                #review previous day overparking time markers and check if there is less "2h" difference and reduce over if it is
                                 for time_str in pr_over_times:
                                     event_delta = int(((event_datetime) - (datetime.strptime(str(previous_record["date"]) + " " + str(time_str), "%Y-%m-%d %H:%M:%S"))).total_seconds()) // 3600
-                                    print("####")
-                                    print(event_datetime)
-                                    print(datetime.strptime(str(previous_record["date"]) + " " + str(time_str), "%Y-%m-%d %H:%M:%S"))
-
-                                    print(event_delta)
                                     if event_delta < int(sets["Overparking_Timeout"]):
-                                        print(previous_record["over_count"])
                                         if previous_record["over_count"] >= onYardOver:
                                             previous_over_new = str(int(previous_record["over_count"])-1)
-
-                                        print("previous_over ", previous_over_new)
                                         pr_over_times.remove(time_str)
                                         pr_over_time_new = "|".join(pr_over_times)
                                         if pr_over_time_new == "": pr_over_time_new = None
-                                        print("marker 1 ", pr_over_time_new)
                                         SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE date=? AND company_ID=?", (previous_over_new, units[0], units[1], event["Time"], pr_over_time_new, previous_record["date"], str(spot_list["company_ID"])), "W")
                                         SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], str(spot_list["company_ID"]), event["Date"]), "W")
                                         return
                                     else: continue
+                # review previous overparking time markers and check if there is less "2h" difference remove latest marker and replace overparking with current
                 if last_record["over_time"] != 0:
-                    print("312")
                     over_time_list = last_record["over_time"].split("|")
                     over_time_list.sort()
-                    print(over_time_list)
                     for time_str in over_time_list:
                         event_delta = int(((event_datetime) - (datetime.strptime(str(last_record["date"]) + " " + str(time_str), "%Y-%m-%d %H:%M:%S"))).total_seconds()) // 3600
-                        print("event_delta ", event_delta)
                         if event_delta < int(sets["Overparking_Timeout"]):
                             over_time_list.remove(time_str)
                             over_time_list_new = "|".join(over_time_list)
@@ -1005,9 +1799,13 @@ def OVERPARKING (event, func):
                     if event_datetime.hour < int(sets["Overparking_Timeout"]):
                         SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], str(spot_list["company_ID"]), event["Date"]), "W")
                         return
+        #if no overparking record for today
         else:
+            #if there is overparking
             if onYardOver > 0:
+                #check if current time is under "2h" allowed time from midnight
                 if event_datetime.hour < int(sets["Overparking_Timeout"]):
+                    #retrive previous day overparking
                     row, col = SQL_REQ("SELECT * FROM dbo.OVERPARKING WHERE date=(SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=?)", (str(spot_list["company_ID"]),), "S_one_D")
                     if row:
                         previous_record = {}
@@ -1019,9 +1817,9 @@ def OVERPARKING (event, func):
                                 previous_record.update({z[0]: y})
                             else:
                                 previous_record.update({z[0]: 0})
-                        print("OKK", previous_record)
+                        #if previous overparking 0, create current day overparking
                         if previous_record["over_count"] == 0:
-                            SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)",(event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"])), "W")
+                            SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"])), "W")
                             return
                         else:
                             if previous_record["over_count"] <= onYardOver: SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"])), "W")
@@ -1035,7 +1833,6 @@ def OVERPARKING (event, func):
                                             pr_time_list.remove(time_str)
                                             pr_time_new = "|".join(pr_time_list)
                                             if pr_time_new == "": pr_time_new = None
-                                            print(pr_time_new, type(pr_time_new))
                                             SQL_REQ("UPDATE dbo.OVERPARKING SET over_time=?, over_count=? WHERE date=(SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=?)", (pr_time_new, str(onYardOver), str(spot_list["company_ID"])), "W")
                                             SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time) VALUES (?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"]), "W")
                                             return
@@ -1059,14 +1856,10 @@ def OVERPARKING (event, func):
                         if previous_record["over_time"] != 0:
                             pr_over_times = previous_record["over_time"].split("|")
                             pr_over_times.sort()
-                            print("pr_over...", pr_over_times)
                             for time_str in pr_over_times:
                                 event_delta = int(((event_datetime) - (datetime.strptime(str(previous_record["date"]) + " " + str(time_str), "%Y-%m-%d %H:%M:%S"))).total_seconds()) // 3600
-                                print("event_delat ", event_delta)
                                 if event_delta <= int(sets["Overparking_Timeout"]):
-                                    print(previous_record["over_count"])
                                     previous_over_new = str(int(previous_record["over_count"]) - 1)
-                                    print("previous_over ", previous_over_new)
                                     pr_over_times.remove(time_str)
                                     pr_over_time_new = "|".join(pr_over_times)
                                     if pr_over_time_new == "": pr_over_time_new = None
@@ -1075,12 +1868,12 @@ def OVERPARKING (event, func):
                                     continue
                         SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time) VALUES (?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"]), "W")
                 return
-
     elif func == "GN": #function for GN overparking if need in the future
         statistics_reg("GN")
     elif func == "V": #function for Visitors overparking if need in the future
         pass
 
+#Function for registering statistics of the yard for Chart
 def statistics_reg(func):
     global StatisticT
     global StatisticGN
@@ -1409,9 +2202,10 @@ def chk_update():
                 }
                 Tenant_Record(record)
     settings_file_edit("chk_datetime", "None")
-    tenant_chk_marker.config(text="None")
-    GN_chk_marker.config(text="None")
-    vis_chk_marker.config(text="None")
+    filter_frame.label_config("None")
+    # tenant_chk_marker.config(text="None")
+    # GN_chk_marker.config(text="None")
+    # vis_chk_marker.config(text="None")
 
 
 
@@ -1914,7 +2708,7 @@ def Tenant_Register_UNREG(comp_ID, unit_number, IN_OUT, event_date, func):
         else: SQL_REQ(f"INSERT INTO {table} (company_ID, {column}, status, last_date) VALUES (?,?,?,?)", (comp_ID, unit_number, b, event_date), "W")
     else:
         if comp_ID == "11" and b == "0": SQL_REQ(f"DELETE FROM {table} WHERE {column}=? AND company_ID=?", (unit_number, str(comp_ID)), "W")
-        else: SQL_REQ(f"UPDATE {table} SET status=?, last_date=?' WHERE company_ID=? AND {column}=?", (b, event_date, str(comp_ID), unit_number), "W")
+        else: SQL_REQ(f"UPDATE {table} SET status=?, last_date=? WHERE company_ID=? AND {column}=?", (b, event_date, str(comp_ID), unit_number), "W")
 
 def Vis_Register_UNREG(comp_ID, plate, model, driver, event_date, IN_OUT):
     table = "dbo.visitors_UNREG"
@@ -2102,13 +2896,13 @@ def units_lst(query, func=None):
     # SQL QUERRIES
     # extract company data in format: full - list(name, id, list(Dis,Reg,Trl, Trk, car); insurance); D - list(name, id); None - list(name)
     if query == "company":
-        req = SQL_REQ("SELECT * FROM dbo.Company_List WHERE activity=1 ORDER BY company_name", (), "S_all")
-        print(req)
+        if func == "D0": req = SQL_REQ("SELECT * FROM dbo.Company_List ORDER BY company_name", (), "S_all")
+        else:  req = SQL_REQ("SELECT * FROM dbo.Company_List WHERE activity=1 ORDER BY company_name", (), "S_all")
         if func == "full":
             company_list = [[row[1], row[0], [row[2], row[3], row[4], row[5], row[6]], row[8]] for row in req]
-        elif func == "D":
-            company_list = [[row[1], row[0]] for row in req]
-        else: company_list = [row[1] for row in req]
+        elif func == "D" or func == "D0": company_list = [[row[1], row[0]] for row in req]
+        else:
+            company_list = [row[1] for row in req]
         return company_list
     elif query == "GNtrucks":
             dict = {}
@@ -2183,11 +2977,16 @@ def units_lst(query, func=None):
         elif func == "tenant_by_comp":
             company_list = units_lst("company", "D")
             company_list.sort()
-            dict = dict()
-            for comp_id in company_list:
-                trucks = SQL_REQ("SELECT * FROM dbo.Tenant_Trucks WHERE dbo.Company_List", (), "S_all")
-                dict[comp_name] ={}
-            #
+            dict = {}
+            for comp in company_list:
+                trucks = SQL_REQ("SELECT * FROM dbo.Tenant_Trucks WHERE Company_ID=? ORDER BY truck_number", (comp[1],), "S_all")
+                trucks_UNREG = SQL_REQ("SELECT * FROM dbo.Tenant_Trucks_UNREG WHERE Company_ID=? ORDER BY truck_number", (comp[1],), "S_all")
+                all_trucks = [list(a) for a in trucks + trucks_UNREG]
+                trailers = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers WHERE Company_ID=? ORDER BY trailer_number", (comp[1],), "S_all")
+                trailers_UNREG = SQL_REQ("SELECT * FROM dbo.Tenant_Trailers_UNREG WHERE Company_ID=? ORDER BY trailer_number", (comp[1],), "S_all")
+                all_trailers = [list(a) for a in trailers + trailers_UNREG]
+                dict = {comp[0]: [sorted(all_trucks, key=lambda x: x[1]), sorted(all_trailers, key=lambda x: x[1])]}
+                return dict
             #
             #
             #
@@ -2857,7 +3656,6 @@ def GN_Record(record):
                     if not fb_status: pass  # function to invest who facuked up
                     SQL_REQ("UPDATE dbo.GN_Flatbed SET status=0, storage=0, last_date=?, LU=0 WHERE fb_number=?", (event_date, fb), "W")
 
-
     OVERPARKING(record, "GN")
 
     # rec = open("GN_history.txt", "a")
@@ -2869,7 +3667,7 @@ def GN_Record(record):
     # rec.write(str_line)
     # rec.close()
 
-###RECORD INFO IN TXT FILE for VISITORS - TEMP to replace on SQL
+### RECORD INFO IN TXT FILE for VISITORS - TEMP to replace on SQL
 def VIS_Record(record):
     global security
     event_date = str(datetime.strptime(record["Date"] + " " + record["Time"], '%Y/%m/%d %H:%M:%S'))
@@ -3798,7 +4596,7 @@ GN_Feature_Company_Frame.pack(side=tk.TOP, fill=tk.BOTH, expand=0)
 #CREATING GN BUTTON
 GN_Button_lb = tk.Label(GN_Feature_Company_Frame, text="GN", relief=tk.GROOVE, bg=conf["func_button_bg"], fg=conf["func_button_fg"], font=(conf["func_button_font"], conf["func_button_size"]))
 GN_Button_lb.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
-if GN_Trigger ==1: GN_Button_lb.configure(relief=tk.SUNKEN, fg=conf["func_button_sel_fg"], bg=conf["func_button_sel_bg"])
+if GN_Trigger == 1: GN_Button_lb.configure(relief=tk.SUNKEN, fg=conf["func_button_sel_fg"], bg=conf["func_button_sel_bg"])
 GN_Button_lb.bind("<Button-1>", lambda x: GN_Button(1))
 GN_Button_lb.bind("<Enter>", lambda y: GN_Button_lb.configure(bg=conf["func_button_bg"], fg=conf["func_button_sel_fg"]))
 GN_Button_lb.bind("<Leave>", lambda z: GN_Hover_Off(GN_Button_lb, 1, "CARRIER"))
@@ -4486,9 +5284,7 @@ def over_preview(masta):
         comp_id = SQL_REQ("SELECT company_ID FROM dbo.Company_list WHERE company_name=? ORDER BY company_name", (comp,), "S_one")
         if comp_id:
             # c_ID = comp_id[0]
-            print(int(date.strftime("%m")), int(year), comp_id[0])
             over_line = over_extract(int(date.strftime("%m")), int(year), comp_id[0])
-
             insert_over(masta, over_line)
     masta.refresh()
     masta.top()
@@ -4509,8 +5305,11 @@ def generate():
 
 year_list = list(sets["Year_List"].split("|"))
 month_list = list(sets["Month_List"].split("|"))
-comp_list = ["All"]
-comp_list.extend(units_lst("company"))
+
+#initialisin list of all companies
+comp_list = ["All"] + units_lst("company")
+
+#comp_list.extend(units_lst("company"))
 today = datetime.now()
 cb_year = ttk.Combobox(combobox_fr, values=year_list, width=10, background=conf["submenu_bg"], foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["submenu_size"]))
 cb_year.current(int(today.strftime("%Y"))-2023)
@@ -4543,12 +5342,11 @@ over_gen_button.pack(fill=tk.BOTH, side=tk.RIGHT, padx=5, pady=5)
 ################################################################################################################################################################################
 def TEN_stat_insert(frame):
     today = date.today()
-    data = get_onyard()["tenant"]
-
+    data = units_lst("", "tenant_by_comp")
     c_frame = tk.Frame(frame, highlightthickness=0, bg=conf["widget_sel_bg"])
     c_frame.pack(side=tk.TOP, fill=tk.X, expand=1, pady=(0, 2), padx=(2, 0))
+
     truck_label = tk.Label(c_frame, text="Trucks:", bg=conf["widget_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["submenu_fg"], width=GN_screen - 2)
-    print(GN_screen)
     truck_label.pack(side=tk.TOP, fill=tk.X, expand=1, anchor=tk.NW, padx=3, pady=3)
     truck_frame = tk.Frame(c_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
     truck_frame.pack(side=tk.TOP, fill=tk.X, padx=3, pady=(0, 3))
@@ -4732,7 +5530,6 @@ def GN_stat_insert(frame):
     c_frame = tk.Frame(frame, highlightthickness=0, bg=conf["widget_sel_bg"])
     c_frame.pack(side=tk.TOP, fill=tk.X, expand=1, pady=(0, 2), padx=(2, 0))
     truck_label = tk.Label(c_frame, text="Trucks:", bg=conf["widget_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["submenu_fg"], width=GN_screen-2)
-    print(GN_screen)
     truck_label.pack(side=tk.TOP, fill=tk.X, expand=1, anchor=tk.NW, padx=3, pady=3)
     truck_frame = tk.Frame(c_frame, highlightthickness=0, bg=conf["widget_sel_bg"])
     truck_frame.pack(side=tk.TOP, fill=tk.X, padx=3, pady=(0, 3))
@@ -4876,22 +5673,56 @@ def GN_stat_insert(frame):
 def T_stat(*args):
     global GN_Menu_Var
     GN_Menu_Var = 3
+    for all in GN_central_frame.winfo_children(): all.pack_forget()
     Ten_state_date_sc_fr.delete
     TEN_stat_insert(Ten_state_date_sc_fr.frame)
     Ten_state_date_sc_fr.refresh
     Ten_state_date_sc_fr.delete
     data_Ten_stat.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
-    data_GN_stat.pack_forget()
+
 
 def T_history(*args):
     global GN_Menu_Var
     GN_Menu_Var = 4
     for all in GN_central_frame.winfo_children(): all.pack_forget()
-    pass
+    tenant_his_filter.delete()
+    tenant_his_filter.pack(side=tk.LEFT, fill=tk.Y)
+    tenant_his_filter.tenant_history(
+        company_func=lambda *args:checkyard_insert(tenant_his_filter, tenant_his_scroll_frame),
+        truck_func=lambda *args:checkyard_insert(tenant_his_filter, tenant_his_scroll_frame),
+        trailer_func=lambda *args:checkyard_insert(tenant_his_filter, tenant_his_scroll_frame),
+        storage_func=lambda *args:checkyard_insert(tenant_his_filter, tenant_his_scroll_frame),
+        scale_func=lambda *args:checkyard_insert(tenant_his_filter, tenant_his_scroll_frame),
+        period_func=lambda *args:checkyard_insert(tenant_his_filter, tenant_his_scroll_frame)
+    )
+    tenant_his_scroll_frame.pack(side=tk.LEFT, fill=tk.BOTH)
+    data_Ten_his.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+    tenant_his_scroll_frame.refresh()
+    tenant_his_scroll_frame.top()
+
+
+############################
+#temp function for test
+def test_comp():
+    error(12)
+def test_truck():
+    error(12)
+def test_trailer():
+    error(12)
+def test_storage():
+    error(12)
+def test_date():
+    error(12)
+##############################
+
+
+
+
 
 def GN_stat(*args):
     global GN_Menu_Var
     GN_Menu_Var = 1
+    for all in GN_central_frame.winfo_children(): all.pack_forget()
     GN_state_data_sc_fr.delete()
     GN_stat_insert(GN_state_data_sc_fr.frame)
     GN_state_data_sc_fr.refresh()
@@ -4905,10 +5736,62 @@ def GN_history(*args):
     global GN_Menu_Var
     GN_Menu_Var = 2
     for all in GN_central_frame.winfo_children(): all.pack_forget()
-    GN_history_insert(second_GN_his_frame)
-    data_GN_his.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
-    print(GN_his_combobox_C)
-    update_GN_his(None, GN_his_combobox_C, 0)
+    GN_his_filter.delete()
+    GN_his_filter.pack(side=tk.LEFT, fill=tk.Y)
+    GN_his_filter.GN_histor(
+        truck_func=lambda *args: history_insert("GN"),
+        trailer_func=lambda *args: history_insert("GN"),
+        fb_func=lambda *args: history_insert("GN"),
+        storage_func=lambda *args: history_insert("GN"),
+        scale_func=lambda *args: history_insert("GN"),
+        period_func=lambda *args: history_insert("GN")
+    )
+    data_GN_his.pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=(0,20))
+    #GN_history_insert(second_GN_his_frame)
+    GN_signs_frame = tk.Frame(data_GN_his, highlightthickness=0, bg=conf["window_bg"])
+    GN_signs_frame.pack(side=tk.TOP, fill=tk.X)
+    GN_signs_com_lb = tk.Label(GN_signs_frame, text="Company:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    GN_signs_com_lb.grid(row=0, column=0, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_T_lb = tk.Label(GN_signs_frame, text="Truck:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    GN_signs_T_lb.grid(row=0, column=1, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_Tr_lb = tk.Label(GN_signs_frame, text="Trailer:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    GN_signs_Tr_lb.grid(row=0, column=2, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_FB_lb = tk.Label(GN_signs_frame, text="Flatbed:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    GN_signs_FB_lb.grid(row=0, column=3, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_Datetime_lb = tk.Label(GN_signs_frame, text="Datetime:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    GN_signs_Datetime_lb.grid(row=0, column=4, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_Cargo_lb = tk.Label(GN_signs_frame, text="Cargo:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    GN_signs_Cargo_lb.grid(row=0, column=5, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_Status_lb = tk.Label(GN_signs_frame, text="Status:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    GN_signs_Status_lb.grid(row=0, column=6, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_comm_lb = tk.Label(GN_signs_frame, text="Comment:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    GN_signs_comm_lb.grid(row=0, column=7, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_name_lb = tk.Label(GN_signs_frame, text="Registered:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    GN_signs_name_lb.grid(row=0, column=8, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_frame.grid_columnconfigure(0, weight=1)
+    GN_signs_frame.grid_columnconfigure(1, weight=1)
+    GN_signs_frame.grid_columnconfigure(2, weight=1)
+    GN_signs_frame.grid_columnconfigure(3, weight=1)
+    GN_signs_frame.grid_columnconfigure(4, weight=3)
+    GN_signs_frame.grid_columnconfigure(5, weight=1)
+    GN_signs_frame.grid_columnconfigure(6, weight=1)
+    GN_signs_frame.grid_columnconfigure(7, weight=1)
+    GN_signs_frame.grid_columnconfigure(8, weight=2)
+
+
+
+    GN_his_scroll_frame.pack(side=tk.LEFT, fill=tk.BOTH)
+
+    GN_his_scroll_frame.refresh()
+    GN_his_scroll_frame.top()
+
+
+
+
+
+
+
+
 
 
 def chart(*args):
@@ -4927,6 +5810,7 @@ def GN_howeroff(*args):
 
 #Defining number of days in Year and Month function
 def update_GN_his(event, *args):
+    return
     global GN_combo_days_list
     global GN_combo_T_list
     global GN_combo_filter_var
@@ -5138,13 +6022,15 @@ Ten_state_date_sc_fr.pack(side=tk.LEFT, fill=tk.X)
 
 
 # Tenant history
+data_Ten_his = tk.Frame(GN_central_frame, highlightthickness=0, bg=conf["window_bg"])
+data_Ten_his.pack_propagate(False)
+tenant_his_filter = filter_frame(data_Ten_his)
+tenant_his_scroll_frame = scroller(data_Ten_his)
 
 
 
 
-
-
-
+# GN stat
 data_GN_stat = tk.Frame(GN_central_frame, highlightthickness=0, bg=conf["window_bg"])
 data_GN_stat.pack_propagate(False)
 
@@ -5152,102 +6038,162 @@ GN_state_data_sc_fr = scroller(data_GN_stat)
 GN_state_data_sc_fr.pack(side=tk.LEFT, fill=tk.X)
 #
 
-##############################################################################################################
-#Frame with GN history information - packs by GN_stat
+# GN history
 data_GN_his = tk.Frame(GN_central_frame, highlightthickness=0, bg=conf["window_bg"])
 data_GN_his.pack_propagate(False)
+GN_his_filter = filter_frame(data_GN_his)
+GN_his_scroll_frame = scroller(data_GN_his)
 
-#Main frame for Header
-data_GN_his_label_fr = tk.Frame(data_GN_his, highlightthickness=0, bg=conf["window_bg"])
-data_GN_his_label_fr.pack(fill=tk.X, side=tk.TOP, padx=5, pady=5, anchor=tk.N)
+##############################################################################################################
 
-#Frame, label, combo for Company
-GN_his_comp_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
-GN_his_comp_fr.pack(side=tk.LEFT, padx=(0,1))
-GN_his_comp_lb = tk.Label(GN_his_comp_fr, text="COMPANY:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
-GN_his_comp_lb.pack(side=tk.TOP, fill=tk.BOTH)
-GN_his_combobox_C = ttk.Combobox(GN_his_comp_fr, values=GN_combo_C_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
-GN_his_combobox_C.pack(fill=tk.BOTH, side=tk.TOP)
-GN_his_combobox_C.current(0)
-GN_his_combobox_C.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_C, 0))
 
-#Frame, label, combo for Truck
-GN_his_T_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
-GN_his_T_fr.pack(side=tk.LEFT, padx=(0,1))
-GN_his_T_lb = tk.Label(GN_his_T_fr, text="TRUCK:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
-GN_his_T_lb.pack(side=tk.TOP, fill=tk.BOTH)
-GN_his_combobox_T = ttk.Combobox(GN_his_T_fr, values=GN_combo_T_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
-GN_his_combobox_T.pack(fill=tk.BOTH, side=tk.TOP)
-GN_his_combobox_T.current(0)
-GN_his_combobox_T.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_T, 1))
+# History implement function
+def history_insert(func):
+    query_string = ""
+    if func == "T":
+        table_name = "dbo.Tenant_History"
+        pass
+    elif func == "GN":
+        masta = GN_his_scroll_frame
+        filter_obj = GN_his_filter
+        table_name = "dbo.GN_History"
+        # getting date from period filter
+        f_year = filter_obj.year_label.cget("text")
+        f_month = filter_obj.month_label.cget("text")
+        f_day = filter_obj.day_label.cget("text")
+        filter_date = datetime.strptime(f"{f_year}-{f_month}-{f_day}", "%Y-%m-%d").date()  # ???????????
+        his_scale = filter_obj.chart_scale
+        # getting checkbox
+        truck_checkbox = filter_obj.search_truck_checkbox.get()
+        trailer_checkbox = filter_obj.search_trailer_checkbox.get()
+        fb_checkbox = filter_obj.search_fb_checkbox.get()
+        if truck_checkbox: truck_unit = filter_obj.truck_search_var.get().strip() or None
+        else: truck_unit = None
+        if trailer_checkbox: trailer_unit = filter_obj.trailer_search_var.get().strip() or None
+        else:  trailer_unit = None
+        if fb_checkbox: fb_unit = filter_obj.fb_search_var.get().strip() or None
+        else: fb_unit = None
+        where_list = [["YEAR(datetime_event)=?", f_year]]
+        if his_scale == "M" or his_scale == "D": where_list.append(["MONTH(datetime_event)=?", f_month])
+        if his_scale == "D": where_list.append(["DAY(datetime_event)=?", f_day])
+        if truck_unit is not None: where_list.append(["truck_number=?", truck_unit])
+        if trailer_unit is not None: where_list.append(["trailer_number=?", trailer_unit])
+        if fb_unit is not None: where_list.append(["fb_number=?", fb_unit])
+    elif func == "V":
+        pass
+    masta.delete()
+    condition_var, value_var = zip(*where_list)
+    db_data = SQL_REQ(f"SELECT * FROM {table_name} WHERE {' AND '.join(condition_var)} ORDER BY datetime_event", value_var, "S_all")
+    X_ind = 0
+    Y_ind = 1
 
-#Frame, label, combo for Trailer
-GN_his_Tr_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
-GN_his_Tr_fr.pack(side=tk.LEFT, padx=(0,1))
-GN_his_Tr_lb = tk.Label(GN_his_Tr_fr, text="TRAILER:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
-GN_his_Tr_lb.pack(side=tk.TOP, fill=tk.BOTH)
-GN_his_combobox_Tr = ttk.Combobox(GN_his_Tr_fr, values=GN_combo_Tr_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
-GN_his_combobox_Tr.pack(fill=tk.BOTH, side=tk.TOP)
-GN_his_combobox_Tr.current(0)
-GN_his_combobox_Tr.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_Tr, 2))
+    for rec_line in db_data:
+        for element in rec_line:
+            tk.Label(masta.frame, text=element, bg=conf["widget_bg"], highlightcolor=conf["entry_sel_frame"], highlightthickness=1, highlightbackground=conf["widget_bg"], bd=0, font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["widget_fg"], justify=tk.CENTER).grid(row=Y_ind, column=X_ind, sticky=tk.NSEW, padx=(0, 1), pady=(1, 0))
+            X_ind+=1
+        X_ind=0
+        Y_ind+=1
 
-#Frame, label, combo for FB
-GN_his_fb_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
-GN_his_fb_fr.pack(side=tk.LEFT, padx=(0,1))
-GN_his_fb_lb = tk.Label(GN_his_fb_fr, text="FB:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
-GN_his_fb_lb.pack(side=tk.TOP, fill=tk.BOTH)
-GN_his_combobox_fb = ttk.Combobox(GN_his_fb_fr, values=GN_combo_FB_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
-GN_his_combobox_fb.pack(fill=tk.BOTH, side=tk.TOP)
-GN_his_combobox_fb.current(0)
-GN_his_combobox_fb.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_fb, 3))
+    masta.grid_config([1, 1, 1, 3, 1, 1, 1, 1, 2])
+    masta.refresh()
 
-#Frame, label, combo for Cargo
-GN_his_LU_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
-GN_his_LU_fr.pack(side=tk.LEFT, padx=(0,1))
-GN_his_LU_lb = tk.Label(GN_his_LU_fr, text="CARGO:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
-GN_his_LU_lb.pack(side=tk.TOP, fill=tk.BOTH)
-GN_his_combobox_LU = ttk.Combobox(GN_his_LU_fr, values=GN_combo_cargo_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
-GN_his_combobox_LU.pack(fill=tk.BOTH, side=tk.TOP)
-GN_his_combobox_LU.current(0)
-GN_his_combobox_LU.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_LU, 5))
 
-#Frame, label, combo for Status
-GN_his_S_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
-GN_his_S_fr.pack(side=tk.LEFT, padx=(0,1))
-GN_his_S_lb = tk.Label(GN_his_S_fr, text="STATUS:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
-GN_his_S_lb.pack(side=tk.TOP, fill=tk.BOTH)
-GN_his_combobox_S = ttk.Combobox(GN_his_S_fr, values=GN_combo_status_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
-GN_his_combobox_S.pack(fill=tk.BOTH, side=tk.TOP)
-GN_his_combobox_S.current(0)
-GN_his_combobox_S.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_S, 6))
 
-#Frame, label, combo for Date
-GN_his_D_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
-GN_his_D_fr.pack(side=tk.LEFT, padx=(0,1))
-GN_his_D_lb = tk.Label(GN_his_D_fr, text="DATE:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=30)
-GN_his_D_lb.pack(side=tk.TOP, fill=tk.BOTH)
-GN_his_combo_fr = tk.Frame(GN_his_D_fr, highlightthickness=0, bg=conf["window_bg"])
-GN_his_combo_fr.pack(side=tk.TOP)
-GN_his_combobox_Y = ttk.Combobox(GN_his_combo_fr, values=GN_combo_year_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
-GN_his_combobox_Y.pack(fill=tk.BOTH, side=tk.LEFT)
-GN_his_combobox_Y.current(0)
-GN_his_combobox_Y.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_Y, 41))
-GN_his_combobox_M = ttk.Combobox(GN_his_combo_fr, values=GN_combo_month_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
-GN_his_combobox_M.pack(fill=tk.BOTH, side=tk.LEFT)
-GN_his_combobox_M.current(0)
-GN_his_combobox_M.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_M, 42))
-GN_his_combobox_D = ttk.Combobox(GN_his_combo_fr, values=GN_combo_days_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
-GN_his_combobox_D.pack(fill=tk.BOTH, side=tk.LEFT)
-GN_his_combobox_D.current(0)
-GN_his_combobox_D.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_D, 43))
 
-#Frame, label, combo for Comment
-GN_his_comm_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
-GN_his_comm_fr.pack(side=tk.LEFT)
-GN_his_comm_lb = tk.Label(GN_his_comm_fr, text="COMMENT:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=20)
-GN_his_comm_lb.pack(side=tk.TOP, fill=tk.BOTH)
-GN_his_combobox_comm = ttk.Combobox(GN_his_comm_fr, state="disabled", background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), width=10)
-GN_his_combobox_comm.pack(fill=tk.BOTH, side=tk.TOP)
+    pass
+
+
+# #Main frame for Header
+# data_GN_his_label_fr = tk.Frame(data_GN_his, highlightthickness=0, bg=conf["window_bg"])
+# data_GN_his_label_fr.pack(fill=tk.X, side=tk.TOP, padx=5, pady=5, anchor=tk.N)
+#
+# #Frame, label, combo for Company
+# GN_his_comp_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
+# GN_his_comp_fr.pack(side=tk.LEFT, padx=(0,1))
+# GN_his_comp_lb = tk.Label(GN_his_comp_fr, text="COMPANY:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
+# GN_his_comp_lb.pack(side=tk.TOP, fill=tk.BOTH)
+# GN_his_combobox_C = ttk.Combobox(GN_his_comp_fr, values=GN_combo_C_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
+# GN_his_combobox_C.pack(fill=tk.BOTH, side=tk.TOP)
+# GN_his_combobox_C.current(0)
+# GN_his_combobox_C.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_C, 0))
+#
+# #Frame, label, combo for Truck
+# GN_his_T_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
+# GN_his_T_fr.pack(side=tk.LEFT, padx=(0,1))
+# GN_his_T_lb = tk.Label(GN_his_T_fr, text="TRUCK:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
+# GN_his_T_lb.pack(side=tk.TOP, fill=tk.BOTH)
+# GN_his_combobox_T = ttk.Combobox(GN_his_T_fr, values=GN_combo_T_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
+# GN_his_combobox_T.pack(fill=tk.BOTH, side=tk.TOP)
+# GN_his_combobox_T.current(0)
+# GN_his_combobox_T.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_T, 1))
+#
+# #Frame, label, combo for Trailer
+# GN_his_Tr_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
+# GN_his_Tr_fr.pack(side=tk.LEFT, padx=(0,1))
+# GN_his_Tr_lb = tk.Label(GN_his_Tr_fr, text="TRAILER:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
+# GN_his_Tr_lb.pack(side=tk.TOP, fill=tk.BOTH)
+# GN_his_combobox_Tr = ttk.Combobox(GN_his_Tr_fr, values=GN_combo_Tr_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
+# GN_his_combobox_Tr.pack(fill=tk.BOTH, side=tk.TOP)
+# GN_his_combobox_Tr.current(0)
+# GN_his_combobox_Tr.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_Tr, 2))
+#
+# #Frame, label, combo for FB
+# GN_his_fb_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
+# GN_his_fb_fr.pack(side=tk.LEFT, padx=(0,1))
+# GN_his_fb_lb = tk.Label(GN_his_fb_fr, text="FB:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
+# GN_his_fb_lb.pack(side=tk.TOP, fill=tk.BOTH)
+# GN_his_combobox_fb = ttk.Combobox(GN_his_fb_fr, values=GN_combo_FB_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
+# GN_his_combobox_fb.pack(fill=tk.BOTH, side=tk.TOP)
+# GN_his_combobox_fb.current(0)
+# GN_his_combobox_fb.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_fb, 3))
+#
+# #Frame, label, combo for Cargo
+# GN_his_LU_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
+# GN_his_LU_fr.pack(side=tk.LEFT, padx=(0,1))
+# GN_his_LU_lb = tk.Label(GN_his_LU_fr, text="CARGO:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
+# GN_his_LU_lb.pack(side=tk.TOP, fill=tk.BOTH)
+# GN_his_combobox_LU = ttk.Combobox(GN_his_LU_fr, values=GN_combo_cargo_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
+# GN_his_combobox_LU.pack(fill=tk.BOTH, side=tk.TOP)
+# GN_his_combobox_LU.current(0)
+# GN_his_combobox_LU.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_LU, 5))
+#
+# #Frame, label, combo for Status
+# GN_his_S_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
+# GN_his_S_fr.pack(side=tk.LEFT, padx=(0,1))
+# GN_his_S_lb = tk.Label(GN_his_S_fr, text="STATUS:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=10)
+# GN_his_S_lb.pack(side=tk.TOP, fill=tk.BOTH)
+# GN_his_combobox_S = ttk.Combobox(GN_his_S_fr, values=GN_combo_status_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
+# GN_his_combobox_S.pack(fill=tk.BOTH, side=tk.TOP)
+# GN_his_combobox_S.current(0)
+# GN_his_combobox_S.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_S, 6))
+#
+# #Frame, label, combo for Date
+# GN_his_D_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
+# GN_his_D_fr.pack(side=tk.LEFT, padx=(0,1))
+# GN_his_D_lb = tk.Label(GN_his_D_fr, text="DATE:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=30)
+# GN_his_D_lb.pack(side=tk.TOP, fill=tk.BOTH)
+# GN_his_combo_fr = tk.Frame(GN_his_D_fr, highlightthickness=0, bg=conf["window_bg"])
+# GN_his_combo_fr.pack(side=tk.TOP)
+# GN_his_combobox_Y = ttk.Combobox(GN_his_combo_fr, values=GN_combo_year_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
+# GN_his_combobox_Y.pack(fill=tk.BOTH, side=tk.LEFT)
+# GN_his_combobox_Y.current(0)
+# GN_his_combobox_Y.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_Y, 41))
+# GN_his_combobox_M = ttk.Combobox(GN_his_combo_fr, values=GN_combo_month_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
+# GN_his_combobox_M.pack(fill=tk.BOTH, side=tk.LEFT)
+# GN_his_combobox_M.current(0)
+# GN_his_combobox_M.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_M, 42))
+# GN_his_combobox_D = ttk.Combobox(GN_his_combo_fr, values=GN_combo_days_list, background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), state="readonly", width=10)
+# GN_his_combobox_D.pack(fill=tk.BOTH, side=tk.LEFT)
+# GN_his_combobox_D.current(0)
+# GN_his_combobox_D.bind("<<ComboboxSelected>>", lambda event: update_GN_his(event, GN_his_combobox_D, 43))
+#
+# #Frame, label, combo for Comment
+# GN_his_comm_fr = tk.Frame(data_GN_his_label_fr, highlightthickness=0, bg=conf["window_bg"])
+# GN_his_comm_fr.pack(side=tk.LEFT)
+# GN_his_comm_lb = tk.Label(GN_his_comm_fr, text="COMMENT:", bg=conf["header_bg"], font=(conf["header_font"], conf["header_size"]), fg=conf["header_fg"], width=20)
+# GN_his_comm_lb.pack(side=tk.TOP, fill=tk.BOTH)
+# GN_his_combobox_comm = ttk.Combobox(GN_his_comm_fr, state="disabled", background=conf["window_bg"], foreground=conf["submenu_fg"], font=(conf["widget_font"], conf["widget_size"]), width=10)
+# GN_his_combobox_comm.pack(fill=tk.BOTH, side=tk.TOP)
 
 
 
@@ -5260,39 +6206,39 @@ GN_his_combobox_comm.pack(fill=tk.BOTH, side=tk.TOP)
 
 
 
-
-# Scrollable frame for Data
-sub_GN_his_frame = tk.Frame(data_GN_his, highlightthickness=0)
-sub_GN_his_frame.pack(fill=tk.BOTH, side=tk.TOP, expand=1)
-
-
-GN_his_canv = tk.Canvas(sub_GN_his_frame, bg=conf["window_bg"], highlightthickness=0)
-second_GN_his_frame = tk.Frame(GN_his_canv, bg=conf["window_bg"])
-GN_his_scrl = ttk.Scrollbar(sub_GN_his_frame, orient=tk.VERTICAL, command=GN_his_canv.yview)
-GN_his_canv.config(yscrollcommand=GN_his_scrl.set)
-GN_his_scrl.pack(fill=tk.Y, side=tk.RIGHT)
-GN_his_canv.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
-GN_his_canv.create_window((0, 0), window=second_GN_his_frame, anchor=tk.NW)
-second_GN_his_frame.bind("<Configure>", lambda event, canvas=GN_his_canv: GN_his_canv.configure(scrollregion=GN_his_canv.bbox("all")))
-def GN_his_scroll_region(*event):
-    if second_GN_his_frame.winfo_height() <= GN_his_canv.winfo_height():
-        GN_his_scrl.pack_forget()
-        GN_his_canv.configure(yscrollcommand=None)
-        second_GN_his_frame.unbind("<Enter>")
-        second_GN_his_frame.unbind_all("<MouseWheel>")
-    else:
-        GN_his_scrl.pack(side=tk.RIGHT, fill=tk.Y)
-        GN_his_canv.configure(yscrollcommand=GN_his_scrl.set)
-        second_GN_his_frame.bind("<Enter>", GN_his_enter_mousewheel, add="+")
-GN_his_canv.bind("<Configure>", GN_his_scroll_region)
-
-def GN_his_on_mousewheel(event): GN_his_canv.yview_scroll(int(-1 * (event.delta / 120)), "units")
-def GN_his_enter_mousewheel(event): GN_his_canv.bind_all('<MouseWheel>', GN_his_on_mousewheel, add="+")
-def GN_his_leave_mousewheel(event): GN_his_canv.unbind_all('<MouseWheel>')
-second_GN_his_frame.bind("<Enter>", GN_his_enter_mousewheel, add="+")
-second_GN_his_frame.bind("<Leave>", GN_his_leave_mousewheel)
-GN_his_canv.config(bg=conf["window_bg"])
-
+#
+# # Scrollable frame for Data
+# sub_GN_his_frame = tk.Frame(data_GN_his, highlightthickness=0)
+# sub_GN_his_frame.pack(fill=tk.BOTH, side=tk.TOP, expand=1)
+#
+#
+# GN_his_canv = tk.Canvas(sub_GN_his_frame, bg=conf["window_bg"], highlightthickness=0)
+# second_GN_his_frame = tk.Frame(GN_his_canv, bg=conf["window_bg"])
+# GN_his_scrl = ttk.Scrollbar(sub_GN_his_frame, orient=tk.VERTICAL, command=GN_his_canv.yview)
+# GN_his_canv.config(yscrollcommand=GN_his_scrl.set)
+# GN_his_scrl.pack(fill=tk.Y, side=tk.RIGHT)
+# GN_his_canv.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
+# GN_his_canv.create_window((0, 0), window=second_GN_his_frame, anchor=tk.NW)
+# second_GN_his_frame.bind("<Configure>", lambda event, canvas=GN_his_canv: GN_his_canv.configure(scrollregion=GN_his_canv.bbox("all")))
+# def GN_his_scroll_region(*event):
+#     if second_GN_his_frame.winfo_height() <= GN_his_canv.winfo_height():
+#         GN_his_scrl.pack_forget()
+#         GN_his_canv.configure(yscrollcommand=None)
+#         second_GN_his_frame.unbind("<Enter>")
+#         second_GN_his_frame.unbind_all("<MouseWheel>")
+#     else:
+#         GN_his_scrl.pack(side=tk.RIGHT, fill=tk.Y)
+#         GN_his_canv.configure(yscrollcommand=GN_his_scrl.set)
+#         second_GN_his_frame.bind("<Enter>", GN_his_enter_mousewheel, add="+")
+# GN_his_canv.bind("<Configure>", GN_his_scroll_region)
+#
+# def GN_his_on_mousewheel(event): GN_his_canv.yview_scroll(int(-1 * (event.delta / 120)), "units")
+# def GN_his_enter_mousewheel(event): GN_his_canv.bind_all('<MouseWheel>', GN_his_on_mousewheel, add="+")
+# def GN_his_leave_mousewheel(event): GN_his_canv.unbind_all('<MouseWheel>')
+# second_GN_his_frame.bind("<Enter>", GN_his_enter_mousewheel, add="+")
+# second_GN_his_frame.bind("<Leave>", GN_his_leave_mousewheel)
+# GN_his_canv.config(bg=conf["window_bg"])
+#
 
 #############################################
 #                   Chart                   #
@@ -5532,7 +6478,7 @@ GN_screen = screen_x//16
 
 ################################################################################################################################################################################
 ################################################################################################################################################################################
-##                      Check yard
+#                      Check yard
 ################################################################################################################################################################################
 ################################################################################################################################################################################
 #screen size adjustment
@@ -5540,13 +6486,13 @@ s1ze = screen_x-int(conf["chk_filter_frame"])
 chk_data_size = (s1ze//17)+4
 def get_onyard():
     def extract(var):
-        comp = SQL_REQ("SELECT company_name, company_ID FROM dbo.Company_List", (), "S_all")
+        comp = units_lst("company", "D0")
         comp_dic = {}
-        for x in comp:
-            comp_dic.update({x[1]: x[0]})
+        for x in comp: comp_dic.update({x[1]: x[0]})
         list = []
         if not var: return comp_dic
         comp_dic.update({999: "UNREGISTERED"})
+        # for items in comp_dic.items(): print(items)
         for n in var[0]:
             u_dir = {}
             index = 0
@@ -5590,10 +6536,28 @@ def chk_tenant(*args):
     global Check_Menu_Var
     Check_Menu_Var = 1
     for all in chk_center_frame.winfo_children(): all.pack_forget()
-    filter_fr.pack(side=tk.LEFT, fill=tk.BOTH)
-    data_fr.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
-    chk_insert(second_data_frame)
-    chk_canv.yview_moveto(0)
+    checkyard_Ten_Filter.delete()
+    checkyard_Ten_Filter.pack(side=tk.LEFT, fill=tk.Y)
+    checkyard_Ten_Filter.checkyard(
+        company_func=lambda *args: checkyard_insert(checkyard_Ten_Filter, checkyard_Ten_sc_fr),
+        time_on_yard_func=lambda *args: checkyard_insert(checkyard_Ten_Filter, checkyard_Ten_sc_fr),
+        check_generate=lambda *args: checkyard_generate(checkyard_Ten_Filter),
+        check_print=lambda *args: checkyard_print(),
+        truck_func=lambda *args: checkyard_insert(checkyard_Ten_Filter, checkyard_Ten_sc_fr),
+        trailer_func=lambda *args: checkyard_insert(checkyard_Ten_Filter, checkyard_Ten_sc_fr),
+        storage_func=lambda *args: checkyard_insert(checkyard_Ten_Filter, checkyard_Ten_sc_fr),
+        age_func=lambda *args: checkyard_insert(checkyard_Ten_Filter, checkyard_Ten_sc_fr)
+    )
+    checkyard_Ten_Main_Frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
+    checkyard_Ten_sc_fr.pack(side=tk.LEFT, fill=tk.BOTH)
+    checkyard_Ten_sc_fr.refresh()
+    checkyard_Ten_sc_fr.top()
+    checkyard_insert(checkyard_Ten_Filter, checkyard_Ten_sc_fr)
+
+    #data_fr.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
+
+    # chk_insert(second_data_frame)
+    # chk_canv.yview_moveto(0)
 
 
 def chk_GN(*args):
@@ -6223,95 +7187,97 @@ def chk_vis_insert(frame):
 
 
 
-
-filter_fr = tk.Frame(chk_center_frame, highlightthickness=3, relief=tk.RAISED, bg=conf["submenu_bg"], highlightbackground=conf["submenu_sel_bg"], width=conf["chk_filter_frame"])
-filter_fr.pack_propagate(False)
-
-
-chk_t_comp_lb = tk.Label(filter_fr, text="Companies:", foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["header_size"]), bg=conf["submenu_bg"])
-chk_t_comp_lb.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.W)
-chk_comp_box = ttk.Combobox(filter_fr, values=comp_list, width=10, background=conf["submenu_sel_bg"], foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["notebook_tab_size"]), state="readonly")
-chk_comp_box.pack(fill=tk.X, side=tk.TOP, padx=5)
-chk_comp_box.current(0)
-chk_comp_box.bind("<<ComboboxSelected>>", lambda *args: chk_insert(second_data_frame))
-chk_var_truck = tk.BooleanVar()
-chk_chkbut_truck = tk.Checkbutton(filter_fr, text="Trucks", variable=chk_var_truck, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], onvalue=True, offvalue=False)
-chk_chkbut_truck.pack(side=tk.TOP, padx=5, pady=(20, 0), anchor=tk.W)
-chk_chkbut_truck.select()
-chk_var_trailer = tk.BooleanVar()
-chk_chkbut_trailer = tk.Checkbutton(filter_fr, text="Trailers", variable=chk_var_trailer, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], onvalue=True, offvalue=False)
-chk_chkbut_trailer.pack(side=tk.TOP, padx=5, pady=(10, 0), anchor=tk.W)
-chk_chkbut_trailer.select()
-chk_var_storage = tk.BooleanVar()
-chk_chkbut_stor = tk.Checkbutton(filter_fr, text="Storage", variable=chk_var_storage, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], state=tk.NORMAL, onvalue=True, offvalue=False)
-chk_chkbut_stor.pack(side=tk.TOP, padx=5, pady=(10, 0), anchor=tk.W)
-chk_chkbut_stor.select()
-chk_t_age_lb = tk.Label(filter_fr, text="Time on Yard (days):", foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["notebook_tab_size"]), bg=conf["submenu_bg"])
-chk_t_age_lb.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.W)
-
-chk_age_fr = tk.Frame(filter_fr, highlightthickness=0, bg=conf["submenu_bg"])
-chk_age_fr.pack(side=tk.TOP, anchor=tk.W)
-chk_var_age = tk.BooleanVar()
-chk_age_chkbox = tk.Checkbutton(chk_age_fr, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], onvalue=True, offvalue=False, variable=chk_var_age)
-chk_age_chkbox.pack(fill=tk.X, side=tk.LEFT)
-chk_aging = None
-chk_entry1 = tk.Entry(chk_age_fr, bg=conf["window_bg"], bd=0, font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["entry_fg"], width=15, state=tk.DISABLED)
-chk_entry1.pack(side=tk.LEFT, fill=tk.BOTH)
-chk_button_get = tk.Button(chk_age_fr, text=u"\u23F5", bg=conf["submenu_sel_bg"], relief=tk.RAISED, command=lambda *args: chk_insert(second_data_frame))
-chk_button_get.pack(side=tk.RIGHT, padx=(5, 0))
-
-tenant_gen_frame = tk.Frame(filter_fr, highlightthickness=0, bg=conf["submenu_bg"], width=50)
-tenant_gen_frame.pack(side=tk.BOTTOM, anchor=tk.W)
-tenant_chk_marker_lb = tk.Label(tenant_gen_frame, text="Check Yard Marker:", foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["notebook_tab_size"]), bg=conf["submenu_bg"])
-tenant_chk_marker_lb.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.W)
-tenant_chk_marker = tk.Label(tenant_gen_frame, foreground=conf["status_fg"], text=sets["chk_datetime"], font=(conf["submenu_font"], conf["notebook_tab_size"]), bg=conf["submenu_bg"])
-tenant_chk_marker.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.CENTER)
-tenant_gen_button = tk.Button(tenant_gen_frame, text="GENERATE", height=1, bg=conf["submenu_bg"], fg=conf["submenu_fg"], font=(conf["submenu_font"], conf["font_size"]), relief=tk.RAISED, command = lambda: check_generate(1))
-tenant_gen_button.pack(side=tk.TOP, padx=(5, 0), fill=tk.X, expand=1)
-tenant_print_button = tk.Button(tenant_gen_frame, text="PRINT", height=1, bg=conf["submenu_bg"], fg=conf["submenu_fg"],font=(conf["submenu_font"], conf["font_size"]), relief=tk.RAISED, command = lambda: check_print(1))
-tenant_print_button.pack(side=tk.TOP, padx=(5, 0), fill=tk.X, expand=1)
-
-data_fr = tk.Frame(chk_center_frame, highlightthickness=0, bg=conf["window_bg"])
-data_fr.pack_propagate(False)
+# Check yard Tenant window
+checkyard_Ten_Main_Frame = tk.Frame(chk_center_frame, highlightthickness=0, relief=tk.RAISED, bg=conf["window_bg"], width=conf["chk_filter_frame"])
+checkyard_Ten_Main_Frame.pack_propagate(False)
+checkyard_Ten_Filter = filter_frame(checkyard_Ten_Main_Frame)
+checkyard_Ten_sc_fr = scroller(checkyard_Ten_Main_Frame)
 
 
-# Scrollable frame for Data
-sub_chk_tenant_frame = tk.Frame(data_fr, highlightthickness=0)
-sub_chk_tenant_frame.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
-
-
-chk_canv = tk.Canvas(sub_chk_tenant_frame, bg=conf["window_bg"], highlightthickness=0)
-second_data_frame = tk.Frame(chk_canv, bg=conf["window_bg"])
-chk_scrl = ttk.Scrollbar(sub_chk_tenant_frame, orient=tk.VERTICAL, command=chk_canv.yview)
-chk_canv.config(yscrollcommand=chk_scrl.set)
-chk_scrl.pack(fill=tk.Y, side=tk.RIGHT)
-chk_canv.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
-chk_canv.create_window((0, 0), window=second_data_frame, anchor=tk.NW)
-second_data_frame.bind("<Configure>", lambda event, canvas=chk_canv: chk_canv.configure(scrollregion=chk_canv.bbox("all")))
-def check_scroll_region(*event):
-    if second_data_frame.winfo_height() <= chk_canv.winfo_height():
-        chk_scrl.pack_forget()
-        chk_canv.configure(yscrollcommand=None)
-        second_data_frame.unbind("<Enter>")
-        second_data_frame.unbind_all("<MouseWheel>")
-    else:
-        chk_scrl.pack(side=tk.RIGHT, fill=tk.Y)
-        chk_canv.configure(yscrollcommand=chk_scrl.set)
-        second_data_frame.bind("<Enter>", chk_enter_mousewheel_tenant_comp, add="+")
-chk_canv.bind("<Configure>", check_scroll_region)
-
-def chk_on_mousewheel(event): chk_canv.yview_scroll(int(-1 * (event.delta / 120)), "units")
-def chk_enter_mousewheel_tenant_comp(event): chk_canv.bind_all('<MouseWheel>', chk_on_mousewheel, add="+")
-def chk_leave_mousewheel_tenant_comp(event): chk_canv.unbind_all('<MouseWheel>')
-second_data_frame.bind("<Enter>", chk_enter_mousewheel_tenant_comp, add="+")
-second_data_frame.bind("<Leave>", chk_leave_mousewheel_tenant_comp)
-
-
-
-chk_var_truck.trace("w", lambda *args: chk_insert(second_data_frame))
-chk_var_trailer.trace("w", lambda *args: chk_insert(second_data_frame))
-chk_var_storage.trace("w", lambda *args: chk_insert(second_data_frame))
-chk_var_age.trace("w", lambda *args: chk_insert(second_data_frame))
+# chk_t_comp_lb = tk.Label(filter_fr, text="Companies:", foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["header_size"]), bg=conf["submenu_bg"])
+# chk_t_comp_lb.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.W)
+# chk_comp_box = ttk.Combobox(filter_fr, values=comp_list, width=10, background=conf["submenu_sel_bg"], foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["notebook_tab_size"]), state="readonly")
+# chk_comp_box.pack(fill=tk.X, side=tk.TOP, padx=5)
+# chk_comp_box.current(0)
+# chk_comp_box.bind("<<ComboboxSelected>>", lambda *args: chk_insert(second_data_frame))
+# chk_var_truck = tk.BooleanVar()
+# chk_chkbut_truck = tk.Checkbutton(filter_fr, text="Trucks", variable=chk_var_truck, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], onvalue=True, offvalue=False)
+# chk_chkbut_truck.pack(side=tk.TOP, padx=5, pady=(20, 0), anchor=tk.W)
+# chk_chkbut_truck.select()
+# chk_var_trailer = tk.BooleanVar()
+# chk_chkbut_trailer = tk.Checkbutton(filter_fr, text="Trailers", variable=chk_var_trailer, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], onvalue=True, offvalue=False)
+# chk_chkbut_trailer.pack(side=tk.TOP, padx=5, pady=(10, 0), anchor=tk.W)
+# chk_chkbut_trailer.select()
+# chk_var_storage = tk.BooleanVar()
+# chk_chkbut_stor = tk.Checkbutton(filter_fr, text="Storage", variable=chk_var_storage, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], state=tk.NORMAL, onvalue=True, offvalue=False)
+# chk_chkbut_stor.pack(side=tk.TOP, padx=5, pady=(10, 0), anchor=tk.W)
+# chk_chkbut_stor.select()
+# chk_t_age_lb = tk.Label(filter_fr, text="Time on Yard (days):", foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["notebook_tab_size"]), bg=conf["submenu_bg"])
+# chk_t_age_lb.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.W)
+#
+# chk_age_fr = tk.Frame(filter_fr, highlightthickness=0, bg=conf["submenu_bg"])
+# chk_age_fr.pack(side=tk.TOP, anchor=tk.W)
+# chk_var_age = tk.BooleanVar()
+# chk_age_chkbox = tk.Checkbutton(chk_age_fr, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], onvalue=True, offvalue=False, variable=chk_var_age)
+# chk_age_chkbox.pack(fill=tk.X, side=tk.LEFT)
+# chk_aging = None
+# chk_entry1 = tk.Entry(chk_age_fr, bg=conf["window_bg"], bd=0, font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["entry_fg"], width=15, state=tk.DISABLED)
+# chk_entry1.pack(side=tk.LEFT, fill=tk.BOTH)
+# chk_button_get = tk.Button(chk_age_fr, text=u"\u23F5", bg=conf["submenu_sel_bg"], relief=tk.RAISED, command=lambda *args: chk_insert(second_data_frame))
+# chk_button_get.pack(side=tk.RIGHT, padx=(5, 0))
+#
+# tenant_gen_frame = tk.Frame(filter_fr, highlightthickness=0, bg=conf["submenu_bg"], width=50)
+# tenant_gen_frame.pack(side=tk.BOTTOM, anchor=tk.W)
+# tenant_chk_marker_lb = tk.Label(tenant_gen_frame, text="Check Yard Marker:", foreground=conf["submenu_fg"], font=(conf["submenu_font"], conf["notebook_tab_size"]), bg=conf["submenu_bg"])
+# tenant_chk_marker_lb.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.W)
+# tenant_chk_marker = tk.Label(tenant_gen_frame, foreground=conf["status_fg"], text=sets["chk_datetime"], font=(conf["submenu_font"], conf["notebook_tab_size"]), bg=conf["submenu_bg"])
+# tenant_chk_marker.pack(side=tk.TOP, padx=5, pady=(10, 5), anchor=tk.CENTER)
+# tenant_gen_button = tk.Button(tenant_gen_frame, text="GENERATE", height=1, bg=conf["submenu_bg"], fg=conf["submenu_fg"], font=(conf["submenu_font"], conf["font_size"]), relief=tk.RAISED, command = lambda: check_generate(1))
+# tenant_gen_button.pack(side=tk.TOP, padx=(5, 0), fill=tk.X, expand=1)
+# tenant_print_button = tk.Button(tenant_gen_frame, text="PRINT", height=1, bg=conf["submenu_bg"], fg=conf["submenu_fg"],font=(conf["submenu_font"], conf["font_size"]), relief=tk.RAISED, command = lambda: check_print(1))
+# tenant_print_button.pack(side=tk.TOP, padx=(5, 0), fill=tk.X, expand=1)
+#
+# data_fr = tk.Frame(chk_center_frame, highlightthickness=0, bg=conf["window_bg"])
+# data_fr.pack_propagate(False)
+#
+#
+# # Scrollable frame for Data
+# sub_chk_tenant_frame = tk.Frame(data_fr, highlightthickness=0)
+# sub_chk_tenant_frame.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
+#
+#
+# chk_canv = tk.Canvas(sub_chk_tenant_frame, bg=conf["window_bg"], highlightthickness=0)
+# second_data_frame = tk.Frame(chk_canv, bg=conf["window_bg"])
+# chk_scrl = ttk.Scrollbar(sub_chk_tenant_frame, orient=tk.VERTICAL, command=chk_canv.yview)
+# chk_canv.config(yscrollcommand=chk_scrl.set)
+# chk_scrl.pack(fill=tk.Y, side=tk.RIGHT)
+# chk_canv.pack(fill=tk.BOTH, side=tk.LEFT, expand=1)
+# chk_canv.create_window((0, 0), window=second_data_frame, anchor=tk.NW)
+# second_data_frame.bind("<Configure>", lambda event, canvas=chk_canv: chk_canv.configure(scrollregion=chk_canv.bbox("all")))
+# def check_scroll_region(*event):
+#     if second_data_frame.winfo_height() <= chk_canv.winfo_height():
+#         chk_scrl.pack_forget()
+#         chk_canv.configure(yscrollcommand=None)
+#         second_data_frame.unbind("<Enter>")
+#         second_data_frame.unbind_all("<MouseWheel>")
+#     else:
+#         chk_scrl.pack(side=tk.RIGHT, fill=tk.Y)
+#         chk_canv.configure(yscrollcommand=chk_scrl.set)
+#         second_data_frame.bind("<Enter>", chk_enter_mousewheel_tenant_comp, add="+")
+# chk_canv.bind("<Configure>", check_scroll_region)
+#
+# def chk_on_mousewheel(event): chk_canv.yview_scroll(int(-1 * (event.delta / 120)), "units")
+# def chk_enter_mousewheel_tenant_comp(event): chk_canv.bind_all('<MouseWheel>', chk_on_mousewheel, add="+")
+# def chk_leave_mousewheel_tenant_comp(event): chk_canv.unbind_all('<MouseWheel>')
+# second_data_frame.bind("<Enter>", chk_enter_mousewheel_tenant_comp, add="+")
+# second_data_frame.bind("<Leave>", chk_leave_mousewheel_tenant_comp)
+#
+#
+#
+# chk_var_truck.trace("w", lambda *args: chk_insert(second_data_frame))
+# chk_var_trailer.trace("w", lambda *args: chk_insert(second_data_frame))
+# chk_var_storage.trace("w", lambda *args: chk_insert(second_data_frame))
+# chk_var_age.trace("w", lambda *args: chk_insert(second_data_frame))
 
 #####################
 #        GN         #
@@ -8033,7 +8999,6 @@ def adm_account_add(*args):
         return
     account_add = PasswordDatabase()
     check = SQL_REQ("SELECT login FROM dbo.authentication WHERE login=?", (login,), "S_one")
-    print(check, type(check))
     if check is None:
         try:
             account_add.register(login, pas, name, rights, int(act))
@@ -8150,6 +9115,7 @@ Admin_Account_Info_lb.pack(side=tk.LEFT)
 # Admin Vendors
 #################################################################################
 def Adm_Ven_Insert(masta):
+    global Admin_Vendor_MaxID
     def adm_ven_select(event, ven_name,id, obj):
         global Admin_Vendor_obj
         global Admin_Vendor_Var
@@ -8192,7 +9158,6 @@ def adm_ven_add_button(*args):
             SQL_REQ("INSERT INTO dbo.Car_Vendors (ID, Vendor) VALUES (?,?)", new_rec, "W")
             adm_ven_refresh()
         else:
-            print(Admin_Vendor_Var[1], Admin_Vendor_Var[0])
             SQL_REQ("UPDATE dbo.Car_Vendors SET Vendor=? WHERE ID=?", (new_ven, Admin_Vendor_Var[0]), "W")
             adm_ven_refresh()
 def adm_ven_refresh():
@@ -8204,7 +9169,15 @@ def adm_ven_refresh():
         Admin_Vendor_obj = None
         Admin_Vendor_Var = None
     Adm_Ven_Insert(Admin_Ven_List_Frame)
-
+def adm_ven_delete_button():
+    ven = Admin_Ven_Add_entry.get().strip()
+    check = SQL_REQ("SELECT Vendor FROM dbo.Car_Vendors WHERE Vendor=?", (ven,), "S_one")
+    if check:
+        SQL_REQ("DELETE FROM dbo.Car_Vendors WHERE Vendor=?", (ven,), "W")
+        adm_ven_refresh()
+    else:
+        error(11)
+        adm_ven_refresh()
 
 Admin_Ven_Frame = tk.Frame(adm_main_frame, bg=conf["window_bg"], highlightthickness=0)
 Admin_Ven_Frame.pack_propagate(0)
@@ -8232,7 +9205,8 @@ Admin_Ven_Buttons_Frame.pack_propagate(0)
 #Add button and entry For Vendor
 Admin_Ven_Add_Button = tk.Button(Admin_Ven_Buttons_Frame, text="ADD", command=adm_ven_add_button, width=20, fg=conf["submenu_fg"])
 Admin_Ven_Add_Button.pack(side=tk.LEFT, fill=tk.Y,  padx=2, pady=2)
-
+Admin_Ven_DELETE_Button = tk.Button(Admin_Ven_Buttons_Frame, text="DELETE", command=adm_ven_delete_button, width=20, fg=conf["submenu_fg"])
+Admin_Ven_DELETE_Button.pack(side=tk.LEFT, fill=tk.Y,  padx=2, pady=2)
 Admin_Ven_ref_Button = tk.Button(Admin_Ven_Buttons_Frame, text="REFRESH", command=adm_ven_refresh, width=20, fg=conf["submenu_fg"])
 Admin_Ven_ref_Button.pack(side=tk.LEFT, fill=tk.Y,  padx=2, pady=2)
 Admin_Ven_entry_lb = tk.Label(Admin_Ven_Buttons_Frame, text="Vendor:", bg=conf["submenu_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["submenu_fg"], width=10)
