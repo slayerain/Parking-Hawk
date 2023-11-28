@@ -254,6 +254,8 @@ def error(err_code):
     elif err_code == 20: message("SQL", "Cannot create table/column in SQL.")
     elif err_code == 21: message("System", "Check will be initiated.\nIt may take some time.")
     elif err_code == 22: message("CLASS", "Error occurred in SQL_REQ class.")
+    elif err_code == 23: message("OVERLIMIT", "Requesting list is too big\nLimit is 500 lines.\nTry specify range in filter.")
+    else: message("Error", err_code)
 
 # Function that test connection to SQL, check DB, tables, types of data, ini files and re-create if something is missing
 def TESTER():
@@ -674,10 +676,10 @@ class scroller(tk.Frame):
     def on_mousewheel(self, event): self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
     def enter_mousewheel(self, event): self.canvas.bind_all('<MouseWheel>', self.on_mousewheel, add="+")
     def leave_mousewheel(self, event): self.canvas.unbind_all('<MouseWheel>')
-    def grid_config(self, weight_vals):
-        for i, weight in enumerate(weight_vals):
-            self.frame.grid_columnconfigure(i, weight=weight)
-            print(f"{self}.frame.grid_columnconfigure({i}, weight={weight})")
+    # def grid_config(self, weight_vals):
+    #     for i, weight in enumerate(weight_vals):
+    #         self.frame.grid_columnconfigure(i, weight=weight)
+    #         print(f"{self}.frame.grid_columnconfigure({i}, weight={weight})")
 
 
 class filter_frame(tk.Frame):
@@ -716,12 +718,29 @@ class filter_frame(tk.Frame):
         self.storage_box()
         self.time_on_yard()
         self.generate_buttons()
-    # Tenant History Filter (company-combobox)
+    # Tenant Statistics Filter
+    def tenant_stat(self, **kwargs):
+        # initializing function responsible for activation
+        self.company_func = kwargs.get("company_func")
+        self.time_on_yard_func = kwargs.get("time_on_yard_func")
+        # self.check_generate = kwargs.get("check_generate")
+        # self.check_print = kwargs.get("check_print")
+        self.truck_func = kwargs.get("truck_func")
+        self.trailer_func = kwargs.get("trailer_func")
+        self.storage_func = kwargs.get("storage_func")
+        self.age_func = kwargs.get("age_func")
+        # deployment of filters
+        self.company()
+        self.truck_box()
+        self.trailer_box()
+        self.storage_box()
+        self.time_on_yard()
+        # buttons
+    # Tenant History Filter
     def tenant_history(self, **kwargs):
         self.company_func = kwargs.get("comapny_func")
         self.truck_search_func = kwargs.get("truck_func")
         self.trailer_func = kwargs.get("trailer_func")
-        self.storage_func = kwargs.get("storage_func")
         self.scale_func = kwargs.get("scale_func")
         self.period_func = kwargs.get("period_func")
         self.truck_search_var = tk.StringVar()
@@ -731,9 +750,8 @@ class filter_frame(tk.Frame):
         self.company()
         self.date_period()
         self.date_scale()
-        self.unit_search(label="Truck Search:", var=self.truck_search_var, checkbox = self.search_truck_checkbox, func=self.truck_search_func)
-        self.unit_search(label="Trailer Search:", var=self.trailer_search_var, checkbox = self.search_trailer_checkbox, func=self.truck_search_func)
-        self.storage_box()
+        self.unit_search(label="Truck Search:", var=self.truck_search_var, checkbox=self.search_truck_checkbox, func=self.truck_search_func)
+        self.unit_search(label="Trailer Search:", var=self.trailer_search_var, checkbox=self.search_trailer_checkbox, func=self.truck_search_func)
         self.history_buttons()
 
     def GN_histor(self, **kwargs):
@@ -932,7 +950,7 @@ class filter_frame(tk.Frame):
         self.search_frame.pack(side=tk.TOP, anchor=tk.W)
         self.search_checkbox = tk.Checkbutton(self.search_frame, variable=checkbox, foreground=conf["submenu_fg"], bg=conf["submenu_bg"], onvalue=True, offvalue=False)
         self.search_checkbox.pack(fill=tk.X, side=tk.LEFT)
-        self.unit_search_entry = tk.Entry(self.search_frame, bg=conf["window_bg"], bd=0, font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["entry_fg"], width=15, state=tk.DISABLED)
+        self.unit_search_entry = tk.Entry(self.search_frame, textvariable=var, bg=conf["window_bg"], bd=0, font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["entry_fg"], width=15, state=tk.DISABLED)
         self.unit_search_entry.pack(side=tk.LEFT, fill=tk.BOTH)
         self.unit_search_button = tk.Button(self.search_frame, text=u"\u23F5", bg=conf["submenu_sel_bg"], relief=tk.RAISED, command=func, state=tk.DISABLED)
         self.unit_search_button.pack(side=tk.RIGHT, padx=(5, 0))
@@ -954,6 +972,11 @@ class filter_frame(tk.Frame):
         filter_frame.checkyard_marker = new_marker
         for instance in filter_frame.checkyard_instances:
             instance.generate_marker.config(text=new_marker)
+
+#Function retriving ID by name and otherway arround
+def ID_NAME_company(name=None, ID=None):
+    if name is not None: return SQL_REQ("SELECT company_ID FROM dbo.Company_List WHERE company_name=?", (name,), "S_one")[0]
+    if ID is not None: return SQL_REQ("SELECT company_name FROM dbo.Company_List WHERE company_ID=?", (ID,), "S_one")[0]
 
 
 # Check Insert Function working with Class
@@ -1703,6 +1726,8 @@ def OVERPARKING (event, func):
         truckN = spot_list["regular"] + spot_list["truck"] + spot_list["designated"]
         trailerN = spot_list["regular"] + spot_list["designated"] + spot_list["trailer"]
 
+
+
         #Retriving info how many trucks and trailers actually on yard including last event from perm and temp tables and form in TrucksONyard and TrailersOnyard var
         query = SQL_REQ("SELECT COUNT(*) FROM dbo.Tenant_Trucks WHERE company_ID=? AND status=1", (str(spot_list["company_ID"]),), "S_one")
         if query: Tval = int(query[0])
@@ -1719,13 +1744,16 @@ def OVERPARKING (event, func):
         TrucksONyard = Tval + Tval_UNREG
         TrailersONyard = TRval + TRval_UNREG
 
+        print(f"Company ID: {str(spot_list['company_ID'])}; Allowed Truck: {TrucksONyard}({truckN}) {TrailersONyard}({trailerN})")
+
         #get units numbers that on yard
         units = get_units(spot_list["company_ID"]) ##################################################################### redirect
 
         # calculate in var bigest overparking among trucks and trailers
         onYardOver = max(max(0, TrailersONyard - trailerN), max(0, TrucksONyard - truckN))  # removed abs()
+        print("onYardOver: ", str(onYardOver))
         event_datetime = datetime.strptime(event["Date"] + " " + event["Time"], "%Y/%m/%d %H:%M:%S")
-        event_datetime = event_datetime - timedelta(hours=12) # to remove
+        #event_datetime = event_datetime - timedelta(hours=12) # to remove
         event["Time"] = event_datetime.strftime("%H:%M:%S")
 
         #check if there is over record TODAY
@@ -1852,21 +1880,21 @@ def OVERPARKING (event, func):
                                 previous_record.update({z[0]: y})
                             else:
                                 previous_record.update({z[0]: 0})
-                    if previous_record["over_count"] != 0:
-                        if previous_record["over_time"] != 0:
-                            pr_over_times = previous_record["over_time"].split("|")
-                            pr_over_times.sort()
-                            for time_str in pr_over_times:
-                                event_delta = int(((event_datetime) - (datetime.strptime(str(previous_record["date"]) + " " + str(time_str), "%Y-%m-%d %H:%M:%S"))).total_seconds()) // 3600
-                                if event_delta <= int(sets["Overparking_Timeout"]):
-                                    previous_over_new = str(int(previous_record["over_count"]) - 1)
-                                    pr_over_times.remove(time_str)
-                                    pr_over_time_new = "|".join(pr_over_times)
-                                    if pr_over_time_new == "": pr_over_time_new = None
-                                    SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE date=? AND company_ID=?", (previous_over_new, units[0], units[1], event["Time"], pr_over_time_new, previous_record["date"], str(spot_list["company_ID"])), "W")
-                                else:
-                                    continue
-                        SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time) VALUES (?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"]), "W")
+                        if previous_record["over_count"] != 0:
+                            if previous_record["over_time"] != 0:
+                                pr_over_times = previous_record["over_time"].split("|")
+                                pr_over_times.sort()
+                                for time_str in pr_over_times:
+                                    event_delta = int(((event_datetime) - (datetime.strptime(str(previous_record["date"]) + " " + str(time_str), "%Y-%m-%d %H:%M:%S"))).total_seconds()) // 3600
+                                    if event_delta <= int(sets["Overparking_Timeout"]):
+                                        previous_over_new = str(int(previous_record["over_count"]) - 1)
+                                        pr_over_times.remove(time_str)
+                                        pr_over_time_new = "|".join(pr_over_times)
+                                        if pr_over_time_new == "": pr_over_time_new = None
+                                        SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE date=? AND company_ID=?", (previous_over_new, units[0], units[1], event["Time"], pr_over_time_new, previous_record["date"], str(spot_list["company_ID"])), "W")
+                                    else:
+                                        continue
+                            SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time) VALUES (?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"]), "W")
                 return
     elif func == "GN": #function for GN overparking if need in the future
         statistics_reg("GN")
@@ -2760,14 +2788,18 @@ def Refresh(wnd):
     global Adm_GN_Fb_obj
     global adm_GN_storage_var
     global adm_GN_LU_var
+    # global Adm_Company_obj
+    # global Adm_Company_Var
+    
+
 
     if wnd == "Tenant":
         if Current_Company_obj is not None:
             # try to unhover selected company if choice in same window otherwise Current_Company_obj is true but widget no longer exist.
             try:
                 Hover_Off(Current_Company_obj, None, Company_Var)
-            except:
-                pass
+            except Exception as e:
+                error("Error in Refresh T while Hover_Off: ", e)
         Company_Var = None
         Current_Company_obj = None
         if Current_Truck_obj is not None: Hover_Off(Current_Truck_obj, None, Truck_Var)
@@ -2793,7 +2825,8 @@ def Refresh(wnd):
         if Current_GN_Truck_obj is not None:
             try:
                 Hover_Off(Current_GN_Truck_obj, None, GN_Truck_Var)
-            except: pass
+            except Exception as e:
+                error("Error in Refresh GN while Hover_Off: ", e)
             Current_GN_Truck_obj = None
         GN_Truck_Var = None
         if Current_GN_Trailer_Fb_obj is not None:
@@ -3012,7 +3045,8 @@ def Hover_Off(obj, var, current_select):
         if var != current_select:
             try:
                 obj.configure(bg=conf["widget_bg"], fg=conf["widget_fg"])
-            except:
+            except Exception as e:
+                error(["Error in Hover_Off ", e])
                 debuger("obj.configure(bg=conf['widget_bg'], fg=conf['widget_fg']) where obj="+str(obj)+"; var="+str(var)+"; current_select="+str(current_select))
     else:
         if var is None:
@@ -3191,10 +3225,15 @@ def UNTS(obj, var, func):
         Trailer_Entry.insert(0, var[0])
     elif func == "companies":
         try:
-            if Current_Company_obj is not None and Current_Company_obj != obj: Current_Company_obj.configure(bg=conf["widget_bg"], fg=conf["widget_fg"])
-        except: debuger("UNTS>> Current_Company_obj="+str(Current_Company_obj)+", obj="+str(obj))
+            if Current_Company_obj is not None and Current_Company_obj != obj:
+                Current_Company_obj.configure(bg=conf["widget_bg"], fg=conf["widget_fg"])
+                print(Current_Company_obj, obj)
+        except Exception as e:
+            error(["Error in UNTS: ", e])
+            debuger("UNTS>> Current_Company_obj="+str(Current_Company_obj)+", obj="+str(obj))
         Refresh("Tenant")
         Current_Company_obj = obj
+        Current_Company_obj.configure(bg=conf["widget_sel_bg"], fg=conf["widget_sel_fg"])
         Company_Var = var
         for widgets in second_truck_Frame.winfo_children(): widgets.destroy()
         for widgets in second_trailer_Frame.winfo_children(): widgets.destroy()
@@ -3734,9 +3773,21 @@ def Tenant_In_Out(bool):
     else:
         status = "OUT"
     Last_Event_Status.configure(text=status)
-    Tenant_Record(Tenant_Event)
-    Refresh("Tenant")
-    beep(bool)
+    try:
+        Tenant_Record(Tenant_Event)
+    except Exception as e:
+        error(["Error in Tenant_Record: ", e])
+        debuger(e)
+    try:
+        Refresh("Tenant")
+    except Exception as e:
+        error(["Error in Refresh: ", e])
+        debuger(e)
+    try:
+        beep(bool)
+    except Exception as e:
+        error(["Error in Beep: ", e])
+        debuger(e)
 
 def GN_In_Out (bool):
     global GN_Other_Carrier_Var
@@ -3913,6 +3964,7 @@ def Tenant(event):
     GN_lb.configure(bg=conf["submenu_bg"])
     Visitor_lb.configure(bg=conf["submenu_bg"])
     Refresh("GN")
+    Refresh("Tenant")
     GN_Main.pack_forget()
     Refresh("Visitor")
     VISITOR_Main.pack_forget()
@@ -3927,6 +3979,7 @@ def GN(event):
     Tenant_lb.configure(bg=conf["submenu_bg"])
     Visitor_lb.configure(bg=conf["submenu_bg"])
     Refresh("Tenant")
+    Refresh("GN")
     Tenant_Main.pack_forget()
     Refresh("Visitor")
     VISITOR_Main.pack_forget()
@@ -3942,6 +3995,7 @@ def Visitor(event):
     Tenant_lb.configure(bg=conf["submenu_bg"])
     GN_lb.configure(bg=conf["submenu_bg"])
     Refresh("Tenant")
+    Refresh("Visitor")
     Tenant_Main.pack_forget()
     Refresh("GN")
     GN_Main.pack_forget()
@@ -4229,7 +4283,7 @@ stl.configure("CustomV.TEntry", fieldbackground=conf["widget_bg"])
 # TOP WINDOW BAR AND FUNCTIONALITY BUTTONS
 Top_Frame = tk.Frame(root, relief=tk.RAISED, bg=conf["window_bg"], borderwidth=2, highlightthickness=0)
 Top_Frame.pack(side=tk.TOP, fill=tk.X)
-Top_labe = tk.Label(Top_Frame, text="Parking Hawk 1.38", fg=conf["window_topbar_fg"], bg=conf["window_bg"], font=(conf["window_topbar_font"], conf["window_topbar_size"]))
+Top_labe = tk.Label(Top_Frame, text="Parking Hawk 1.39", fg=conf["window_topbar_fg"], bg=conf["window_bg"], font=(conf["window_topbar_font"], conf["window_topbar_size"]))
 Top_labe.pack(side=tk.LEFT)
 StatisticT = tk.Label(Top_Frame, fg=conf["header_fg"], bg=conf["window_bg"], font=(conf["notebook_tab_font"], conf["notebook_tab_size"]))
 StatisticT.pack(side=tk.LEFT, padx=(20,1))
@@ -5674,47 +5728,93 @@ def T_stat(*args):
     global GN_Menu_Var
     GN_Menu_Var = 3
     for all in GN_central_frame.winfo_children(): all.pack_forget()
-    Ten_state_date_sc_fr.delete
-    TEN_stat_insert(Ten_state_date_sc_fr.frame)
-    Ten_state_date_sc_fr.refresh
-    Ten_state_date_sc_fr.delete
+    for all in data_Ten_stat.winfo_children(): all.pack_forget()
+    ten_state_filter.delete()
+    ten_state_scroller.delete()
+    ten_state_filter.pack(side=tk.LEFT, fill=tk.Y)
+    ten_state_filter.tenant_stat(
+        company_func=lambda *args: checkyard_insert(ten_state_filter, ten_state_scroller),
+        time_on_yard_func=lambda *args: checkyard_insert(ten_state_filter, ten_state_scroller),
+        truck_func=lambda *args: checkyard_insert(ten_state_filter, ten_state_scroller),
+        trailer_func=lambda *args: checkyard_insert(ten_state_filter, ten_state_scroller),
+        storage_func=lambda *args: checkyard_insert(ten_state_filter, ten_state_scroller),
+        age_func=lambda *args: checkyard_insert(ten_state_filter, ten_state_scroller),
+        scale_func=lambda *args: checkyard_insert(ten_state_filter, ten_state_scroller),
+        period_func=lambda *args: checkyard_insert(ten_state_filter, ten_state_scroller)
+    )
+    checkyard_insert(ten_state_filter, ten_state_scroller)
     data_Ten_stat.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+    # Ten_state_scroll_fr.pack(side=tk.LEFT, fill=tk.BOTH)
+    # Ten_his_fil
+    ten_state_scroller.pack(side=tk.LEFT, fill=tk.BOTH)
+
+    #TEN_stat_insert(Ten_state_date_sc_fr.frame)
+
+    # ten_state_scroller.refresh
+    # ten_state_scroller.delete
+
+
+    #########
+    # ten_state_filter = filter_frame(data_Ten_stat)
+    # ten_state_scroller = scroller(data_Ten_stat)
 
 
 def T_history(*args):
     global GN_Menu_Var
+    global el_size
     GN_Menu_Var = 4
     for all in GN_central_frame.winfo_children(): all.pack_forget()
+    for all in data_Ten_his.winfo_children(): all.pack_forget()
     tenant_his_filter.delete()
+    tenant_his_scroll_frame.delete()
     tenant_his_filter.pack(side=tk.LEFT, fill=tk.Y)
     tenant_his_filter.tenant_history(
-        company_func=lambda *args:checkyard_insert(tenant_his_filter, tenant_his_scroll_frame),
-        truck_func=lambda *args:checkyard_insert(tenant_his_filter, tenant_his_scroll_frame),
-        trailer_func=lambda *args:checkyard_insert(tenant_his_filter, tenant_his_scroll_frame),
-        storage_func=lambda *args:checkyard_insert(tenant_his_filter, tenant_his_scroll_frame),
-        scale_func=lambda *args:checkyard_insert(tenant_his_filter, tenant_his_scroll_frame),
-        period_func=lambda *args:checkyard_insert(tenant_his_filter, tenant_his_scroll_frame)
+        company_func=lambda *args:history_insert("T"),
+        truck_func=lambda *args:history_insert("T"),
+        trailer_func=lambda *args:history_insert("T"),
+        scale_func=lambda *args:history_insert("T"),
+        period_func=lambda *args:history_insert("T")
     )
-    tenant_his_scroll_frame.pack(side=tk.LEFT, fill=tk.BOTH)
+    #tenant_his_scroll_frame.pack(side=tk.LEFT, fill=tk.BOTH)
     data_Ten_his.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+    #tenant_his_scroll_frame.refresh()
+
+    T_signs_frame = tk.Frame(data_Ten_his, highlightthickness=0, bg=conf["window_bg"])
+    T_signs_frame.pack(side=tk.TOP, fill=tk.X)
+    T_signs_com_lb = tk.Label(T_signs_frame, text="Company:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    T_signs_com_lb.grid(row=0, column=0, sticky=tk.EW, pady=(1, 0))
+    T_signs_T_lb = tk.Label(T_signs_frame, text="Truck:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    T_signs_T_lb.grid(row=0, column=1, sticky=tk.EW, pady=(1, 0))
+    T_signs_Tr_lb = tk.Label(T_signs_frame, text="Trailer:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    T_signs_Tr_lb.grid(row=0, column=2, sticky=tk.EW, pady=(1, 0))
+    T_signs_Datetime_lb = tk.Label(T_signs_frame, text="Datetime:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    T_signs_Datetime_lb.grid(row=0, column=3, sticky=tk.EW, pady=(1, 0))
+    T_signs_Status_lb = tk.Label(T_signs_frame, text="Status:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    T_signs_Status_lb.grid(row=0, column=4, sticky=tk.EW, pady=(1, 0))
+    T_signs_comm_lb = tk.Label(T_signs_frame, text="Comment:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    T_signs_comm_lb.grid(row=0, column=5, sticky=tk.EW, pady=(1, 0))
+    T_signs_name_lb = tk.Label(T_signs_frame, text="Registered:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
+    T_signs_name_lb.grid(row=0, column=6, sticky=tk.EW, pady=(1, 0))
+    T_signs_frame.grid_columnconfigure(0, weight=1)
+    T_signs_frame.grid_columnconfigure(1, weight=1)
+    T_signs_frame.grid_columnconfigure(2, weight=1)
+    T_signs_frame.grid_columnconfigure(3, weight=4)
+    T_signs_frame.grid_columnconfigure(4, weight=1)
+    T_signs_frame.grid_columnconfigure(5, weight=2)
+    T_signs_frame.grid_columnconfigure(6, weight=2)
+    tenant_his_scroll_frame.pack(side=tk.LEFT, fill=tk.BOTH)
     tenant_his_scroll_frame.refresh()
-    tenant_his_scroll_frame.top()
-
-
-############################
-#temp function for test
-def test_comp():
-    error(12)
-def test_truck():
-    error(12)
-def test_trailer():
-    error(12)
-def test_storage():
-    error(12)
-def test_date():
-    error(12)
-##############################
-
+    root.update_idletasks()
+    el_size = [
+        T_signs_com_lb.winfo_width(),
+        T_signs_T_lb.winfo_width(),
+        T_signs_Tr_lb.winfo_width(),
+        T_signs_Datetime_lb.winfo_width(),
+        T_signs_Status_lb.winfo_width(),
+        T_signs_comm_lb.winfo_width(),
+        T_signs_name_lb.winfo_width() - 25
+    ]
+    el_size = [x // 9 for x in el_size]
 
 
 
@@ -5732,11 +5832,17 @@ def GN_stat(*args):
     # GN_stat_canv.update_idletasks()
     # GN_stat_canv.yview_moveto(0)
 
+
+
+
 def GN_history(*args):
     global GN_Menu_Var
+    global el_size
     GN_Menu_Var = 2
     for all in GN_central_frame.winfo_children(): all.pack_forget()
+    for all in data_GN_his.winfo_children(): all.pack_forget()
     GN_his_filter.delete()
+    GN_his_scroll_frame.delete()
     GN_his_filter.pack(side=tk.LEFT, fill=tk.Y)
     GN_his_filter.GN_histor(
         truck_func=lambda *args: history_insert("GN"),
@@ -5746,44 +5852,53 @@ def GN_history(*args):
         scale_func=lambda *args: history_insert("GN"),
         period_func=lambda *args: history_insert("GN")
     )
-    data_GN_his.pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=(0,20))
+    data_GN_his.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
     #GN_history_insert(second_GN_his_frame)
+
     GN_signs_frame = tk.Frame(data_GN_his, highlightthickness=0, bg=conf["window_bg"])
     GN_signs_frame.pack(side=tk.TOP, fill=tk.X)
     GN_signs_com_lb = tk.Label(GN_signs_frame, text="Company:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
-    GN_signs_com_lb.grid(row=0, column=0, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_com_lb.grid(row=0, column=0, sticky=tk.EW, pady=(1, 0))
     GN_signs_T_lb = tk.Label(GN_signs_frame, text="Truck:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
-    GN_signs_T_lb.grid(row=0, column=1, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_T_lb.grid(row=0, column=1, sticky=tk.EW, pady=(1, 0))
     GN_signs_Tr_lb = tk.Label(GN_signs_frame, text="Trailer:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
-    GN_signs_Tr_lb.grid(row=0, column=2, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_Tr_lb.grid(row=0, column=2, sticky=tk.EW, pady=(1, 0))
     GN_signs_FB_lb = tk.Label(GN_signs_frame, text="Flatbed:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
-    GN_signs_FB_lb.grid(row=0, column=3, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_FB_lb.grid(row=0, column=3, sticky=tk.EW, pady=(1, 0))
     GN_signs_Datetime_lb = tk.Label(GN_signs_frame, text="Datetime:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
-    GN_signs_Datetime_lb.grid(row=0, column=4, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_Datetime_lb.grid(row=0, column=4, sticky=tk.EW, pady=(1, 0))
     GN_signs_Cargo_lb = tk.Label(GN_signs_frame, text="Cargo:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
-    GN_signs_Cargo_lb.grid(row=0, column=5, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_Cargo_lb.grid(row=0, column=5, sticky=tk.EW, pady=(1, 0))
     GN_signs_Status_lb = tk.Label(GN_signs_frame, text="Status:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
-    GN_signs_Status_lb.grid(row=0, column=6, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_Status_lb.grid(row=0, column=6, sticky=tk.EW, pady=(1, 0))
     GN_signs_comm_lb = tk.Label(GN_signs_frame, text="Comment:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
-    GN_signs_comm_lb.grid(row=0, column=7, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_comm_lb.grid(row=0, column=7, sticky=tk.EW, pady=(1, 0))
     GN_signs_name_lb = tk.Label(GN_signs_frame, text="Registered:", bg=conf["header_bg"], font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["header_fg"])
-    GN_signs_name_lb.grid(row=0, column=8, sticky=tk.EW, padx=(0, 1), pady=(1, 0))
+    GN_signs_name_lb.grid(row=0, column=8, sticky=tk.EW, pady=(1, 0))
     GN_signs_frame.grid_columnconfigure(0, weight=1)
     GN_signs_frame.grid_columnconfigure(1, weight=1)
     GN_signs_frame.grid_columnconfigure(2, weight=1)
     GN_signs_frame.grid_columnconfigure(3, weight=1)
-    GN_signs_frame.grid_columnconfigure(4, weight=3)
+    GN_signs_frame.grid_columnconfigure(4, weight=4)
     GN_signs_frame.grid_columnconfigure(5, weight=1)
     GN_signs_frame.grid_columnconfigure(6, weight=1)
-    GN_signs_frame.grid_columnconfigure(7, weight=1)
+    GN_signs_frame.grid_columnconfigure(7, weight=2)
     GN_signs_frame.grid_columnconfigure(8, weight=2)
-
-
-
     GN_his_scroll_frame.pack(side=tk.LEFT, fill=tk.BOTH)
-
     GN_his_scroll_frame.refresh()
-    GN_his_scroll_frame.top()
+    root.update_idletasks()
+    el_size = [
+        GN_signs_com_lb.winfo_width(),
+        GN_signs_T_lb.winfo_width(),
+        GN_signs_Tr_lb.winfo_width(),
+        GN_signs_FB_lb.winfo_width(),
+        GN_signs_Datetime_lb.winfo_width(),
+        GN_signs_Cargo_lb.winfo_width(),
+        GN_signs_Status_lb.winfo_width(),
+        GN_signs_comm_lb.winfo_width(),
+        GN_signs_name_lb.winfo_width()-25
+    ]
+    el_size = [x//9 for x in el_size]
 
 
 
@@ -6013,9 +6128,9 @@ GN_central_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
 # Tenant stat
 data_Ten_stat = tk.Frame(GN_central_frame, highlightthickness=0, bg=conf["window_bg"])
 data_Ten_stat.pack_propagate(False)
+ten_state_filter = filter_frame(data_Ten_stat)
+ten_state_scroller = scroller(data_Ten_stat)
 
-Ten_state_date_sc_fr= scroller(data_Ten_stat)
-Ten_state_date_sc_fr.pack(side=tk.LEFT, fill=tk.X)
 #
 
 
@@ -6033,10 +6148,9 @@ tenant_his_scroll_frame = scroller(data_Ten_his)
 # GN stat
 data_GN_stat = tk.Frame(GN_central_frame, highlightthickness=0, bg=conf["window_bg"])
 data_GN_stat.pack_propagate(False)
-
 GN_state_data_sc_fr = scroller(data_GN_stat)
 GN_state_data_sc_fr.pack(side=tk.LEFT, fill=tk.X)
-#
+
 
 # GN history
 data_GN_his = tk.Frame(GN_central_frame, highlightthickness=0, bg=conf["window_bg"])
@@ -6044,15 +6158,57 @@ data_GN_his.pack_propagate(False)
 GN_his_filter = filter_frame(data_GN_his)
 GN_his_scroll_frame = scroller(data_GN_his)
 
+
+
+
 ##############################################################################################################
-
-
+#calculating weight for lable size in the frame
+# scr_size = ((screen_x - int(conf["chk_filter_frame"])) // 9) - 5
+# print(scr_size)
+# weight = (1, 1, 1, 1, 3, 1, 1, 2, 2)
+# el_size = []
+# for part in weight:
+#     el_size.append(scr_size*part//sum(weight))
+# if scr_size>sum(el_size):
+#     el_size[-1] = el_size[-1]+scr_size-sum(el_size)
+print(units_lst("company"))
 # History implement function
 def history_insert(func):
+    global el_size
     query_string = ""
     if func == "T":
+        masta = tenant_his_scroll_frame
+        filter_obj = tenant_his_filter
         table_name = "dbo.Tenant_History"
-        pass
+        #getting data from company
+        comp_name = filter_obj.comp_box.get()
+        # getting date from period filter
+        f_year = filter_obj.year_label.cget("text")
+        f_month = filter_obj.month_label.cget("text")
+        f_day = filter_obj.day_label.cget("text")
+        filter_date = datetime.strptime(f"{f_year}-{f_month}-{f_day}", "%Y-%m-%d").date()  # ???????????
+        his_scale = filter_obj.chart_scale
+        # getting checkbox
+        truck_checkbox = filter_obj.search_truck_checkbox.get()
+        trailer_checkbox = filter_obj.search_trailer_checkbox.get()
+        if truck_checkbox:
+            truck_unit = filter_obj.truck_search_var.get().strip() or None
+        else:
+            truck_unit = None
+        if trailer_checkbox:
+            trailer_unit = filter_obj.trailer_search_var.get().strip() or None
+        else:
+            trailer_unit = None
+        where_list = [["YEAR(datetime_event)=?", f_year]]
+        if his_scale == "M" or his_scale == "D": where_list.append(["MONTH(datetime_event)=?", f_month])
+        if his_scale == "D": where_list.append(["DAY(datetime_event)=?", f_day])
+        if truck_unit is not None: where_list.append(["truck_number=?", truck_unit])
+        if trailer_unit is not None: where_list.append(["trailer_number=?", trailer_unit])
+        if comp_name != "All" and comp_name is not None:
+            id_comp = ID_NAME_company(name=comp_name)
+            where_list.append(["company_ID=?", id_comp])
+
+
     elif func == "GN":
         masta = GN_his_scroll_frame
         filter_obj = GN_his_filter
@@ -6065,10 +6221,13 @@ def history_insert(func):
         his_scale = filter_obj.chart_scale
         # getting checkbox
         truck_checkbox = filter_obj.search_truck_checkbox.get()
+        print("checkbox", truck_checkbox)
         trailer_checkbox = filter_obj.search_trailer_checkbox.get()
         fb_checkbox = filter_obj.search_fb_checkbox.get()
         if truck_checkbox: truck_unit = filter_obj.truck_search_var.get().strip() or None
         else: truck_unit = None
+        print("truck_entry", truck_unit)
+        print(filter_obj.truck_search_var.get().strip())
         if trailer_checkbox: trailer_unit = filter_obj.trailer_search_var.get().strip() or None
         else:  trailer_unit = None
         if fb_checkbox: fb_unit = filter_obj.fb_search_var.get().strip() or None
@@ -6083,18 +6242,25 @@ def history_insert(func):
         pass
     masta.delete()
     condition_var, value_var = zip(*where_list)
+    print(f"SELECT * FROM {table_name} WHERE {' AND '.join(condition_var)} ORDER BY datetime_event")
     db_data = SQL_REQ(f"SELECT * FROM {table_name} WHERE {' AND '.join(condition_var)} ORDER BY datetime_event", value_var, "S_all")
     X_ind = 0
     Y_ind = 1
-
-    for rec_line in db_data:
-        for element in rec_line:
-            tk.Label(masta.frame, text=element, bg=conf["widget_bg"], highlightcolor=conf["entry_sel_frame"], highlightthickness=1, highlightbackground=conf["widget_bg"], bd=0, font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["widget_fg"], justify=tk.CENTER).grid(row=Y_ind, column=X_ind, sticky=tk.NSEW, padx=(0, 1), pady=(1, 0))
-            X_ind+=1
-        X_ind=0
-        Y_ind+=1
-
-    masta.grid_config([1, 1, 1, 3, 1, 1, 1, 1, 2])
+    if db_data:
+        if len(db_data)>500:
+            error(23)
+            return
+        for rec_line in db_data:
+            rec_frame = tk.Frame(masta.frame, highlightthickness=0, bg=conf["window_bg"])
+            rec_frame.pack(side=tk.TOP, fill=tk.X, expand=1)
+            for indx, element in enumerate(rec_line):
+                if indx==0 and (func=="T" or func=="V"): element = ID_NAME_company(ID=element)
+                tk.Label(rec_frame, text=element, bg=conf["widget_bg"], highlightcolor=conf["entry_sel_frame"], highlightthickness=1, width=el_size[indx], highlightbackground=conf["widget_bg"], bd=0, font=(conf["entry_font"], conf["notebook_tab_size"]), fg=conf["widget_fg"], justify=tk.CENTER).grid(row=Y_ind, column=X_ind, sticky=tk.NSEW, padx=(0, 1), pady=(1, 0))
+                X_ind+=1
+            X_ind=0
+            Y_ind+=1
+    else:
+        tk.Label(masta.frame, text="NO DATA", bg=conf["window_bg"], fg=conf["chart_title"], font=(conf["header_font"], conf["header_size"])).grid(row=Y_ind, column=X_ind, sticky=tk.NSEW, padx=(0, 1), pady=(1, 0))
     masta.refresh()
 
 
@@ -7768,6 +7934,7 @@ edit_scrn_size_lb = edit_scrn_size//150
 def adm_comp(*args):
     global Admin_Menu_Var
     global Admin_Company_Entries
+
     Admin_Menu_Var = 0
     adm_GN_button.configure(bg=conf["submenu_bg"], fg=conf["submenu_fg"])
     adm_acc_button.configure(bg=conf["submenu_bg"], fg=conf["submenu_fg"])
@@ -7786,6 +7953,8 @@ def adm_comp(*args):
 
 def adm_ten(*args):
     global Admin_Menu_Var
+    global Adm_Company_obj
+    global Adm_Company_Var
     Admin_Menu_Var = 1
     adm_GN_button.configure(bg=conf["submenu_bg"], fg=conf["submenu_fg"])
     adm_acc_button.configure(bg=conf["submenu_bg"], fg=conf["submenu_fg"])
@@ -7798,9 +7967,18 @@ def adm_ten(*args):
     Admin_Account_Frame.pack_forget()
     Admin_Visitor_Frame.pack_forget()
     Admin_Ven_Frame.pack_forget()
+    Admin_Tenant_Scroll.delete()
+    Implement(Admin_Tenant_Scroll.frame, "company", "Admin_Units", 10, None)
+    Adm_Company_obj = None # Null company object to avoid error with configuration none existing Label
+    Adm_Company_Var = None
+    Admin_Tenant_T_Scroll.delete()
+    Admin_Tenant_Tr_Scroll.delete()
+    Admin_Tenant_Scroll.refresh()
 
 def adm_vis(*args):
     global Admin_Menu_Var
+    global Adm_Vis_Company_Var
+    global Adm_Vis_Company_obj
     Admin_Menu_Var = 2
     adm_tenant_button.configure(bg=conf["submenu_bg"], fg=conf["submenu_fg"])
     adm_acc_button.configure(bg=conf["submenu_bg"], fg=conf["submenu_fg"])
@@ -7813,6 +7991,13 @@ def adm_vis(*args):
     Admin_Tenant_Frame.pack_forget()
     Admin_Account_Frame.pack_forget()
     Admin_Ven_Frame.pack_forget()
+    Admin_Vis_Scroll.delete()
+    Implement(Admin_Vis_Scroll.frame, "company", "Admin_Vis_Co", 16, None)
+    Admin_Vis_Scroll.refresh()
+    Adm_Vis_Company_obj = None
+    Adm_Vis_Company_Var = None
+    Admin_VIS_RESET()
+
 
 def adm_GN(*args):
     global Admin_Menu_Var
@@ -8362,6 +8547,7 @@ adm_storage_checkbox = tk.Checkbutton(adm_manual_entry_frame, text="Storage", bg
 
 
 Implement(Admin_Tenant_Scroll.frame, "company", "Admin_Units", 10, None)
+Admin_Tenant_Scroll.refresh()
 
 
 #################################################################################
