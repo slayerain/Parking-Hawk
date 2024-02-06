@@ -291,7 +291,8 @@ def TESTER():
     #CONFIG.INI
     # Testing config.ini and recreate if missing
     try:
-        with open(config_ini, "r") as file: conf = {k: v for k, v in (s.split("=") for s in file.read().splitlines())}
+        with open(config_ini, "r") as file: conf = {k: v for k, v in (s.split("=") for s in file.read().splitlines() if s!="")}
+        with open(config_ini, "w") as file: file.write("\n".join([f"{key}={value}" for key, value in conf.items() if key and value]))
     except FileNotFoundError:
         error(1)
         with open(config_ini, "w") as file:
@@ -324,7 +325,8 @@ def TESTER():
     #SETTINGS.INI
     # Testing settings.ini and recreate if missing
     try:
-        with open(settings_ini, "r") as file: sets = {k: v for k, v in (s.split("=") for s in file.read().splitlines())}
+        with open(settings_ini, "r") as file: sets = {k: v for k, v in (s.split("=") for s in file.read().splitlines() if s != "")}
+        with open(settings_ini, "w") as file: file.write("\n".join([f"{key}={value}" for key, value in sets.items() if key and value]))
     except FileNotFoundError:
         error(16)
         with open(settings_ini, "w") as file:
@@ -346,7 +348,10 @@ def TESTER():
                     sets[key] = dfl_sets[key]
                     try:
                         with open(settings_ini, "a") as file:
-                            file.write("\n"+key+"=" + dfl_sets[key])
+                            file.seek(0)
+                            if file.tell() != 0 and file.read()[-1] != "\n":
+                                file.write("\n")
+                            file.write(key+"=" + dfl_sets[key])
                     except Exception as e:
                         error(19)
                         debuger(e)
@@ -4826,7 +4831,7 @@ stl.configure("CustomV.TEntry", fieldbackground=conf["widget_bg"])
 # TOP WINDOW BAR AND FUNCTIONALITY BUTTONS
 Top_Frame = tk.Frame(root, relief=tk.RAISED, bg=conf["window_bg"], borderwidth=2, highlightthickness=0)
 Top_Frame.pack(side=tk.TOP, fill=tk.X)
-Top_labe = tk.Label(Top_Frame, text="Parking Hawk 1.40", fg=conf["window_topbar_fg"], bg=conf["window_bg"], font=(conf["window_topbar_font"], conf["window_topbar_size"]))
+Top_labe = tk.Label(Top_Frame, text="Parking Hawk 1.41", fg=conf["window_topbar_fg"], bg=conf["window_bg"], font=(conf["window_topbar_font"], conf["window_topbar_size"]))
 Top_labe.pack(side=tk.LEFT)
 StatisticT = tk.Label(Top_Frame, fg=conf["header_fg"], bg=conf["window_bg"], font=(conf["notebook_tab_font"], conf["notebook_tab_size"]))
 StatisticT.pack(side=tk.LEFT, padx=(20,1))
