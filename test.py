@@ -3203,6 +3203,7 @@ def cars(master, company, func):
             index += 1
             a.update({z[0]: y})
         carlist.append(a)
+    carlist = sorted(carlist, key=lambda x: x["plates"])
     if master == 0: return carlist
     else:
         for x in carlist:
@@ -4701,6 +4702,7 @@ def H_insert(masta, tab):
         H_canv.update_idletasks()
         check_HT_scroll_region()
         H_canv.yview_moveto(0.0)
+
     elif tab == 2:
         history_list = H_receive(tab)
         for i in range(len(history_list)):
@@ -4768,7 +4770,7 @@ def H_insert(masta, tab):
             cmmnt.pack(side=tk.LEFT, fill=tk.BOTH)
             sec = tk.Label(frame, text=record["full_name"], bg=conf["widget_bg"], font=(conf["history_font"], conf["history_size"]), fg=conf["widget_fg"], anchor=tk.CENTER, highlightthickness=0, width=15)
             sec.pack(side=tk.LEFT, fill=tk.BOTH, padx=1)
-            edit_mark = tk.Label(frame, text=record["comment"], bg=conf["widget_bg"], font=(conf["history_font"], conf["history_size"]), fg=conf["widget_fg"], anchor=tk.CENTER, width=10, highlightthickness=0)
+            edit_mark = tk.Label(frame, bg=conf["widget_bg"], font=(conf["history_font"], conf["history_size"]), fg=conf["widget_fg"], anchor=tk.CENTER, width=10, highlightthickness=0)
             edit_mark.pack(side=tk.LEFT, fill=tk.BOTH)
         HV_canv.update_idletasks()
         check_HV_scroll_region()
@@ -4831,7 +4833,7 @@ stl.configure("CustomV.TEntry", fieldbackground=conf["widget_bg"])
 # TOP WINDOW BAR AND FUNCTIONALITY BUTTONS
 Top_Frame = tk.Frame(root, relief=tk.RAISED, bg=conf["window_bg"], borderwidth=2, highlightthickness=0)
 Top_Frame.pack(side=tk.TOP, fill=tk.X)
-Top_labe = tk.Label(Top_Frame, text="Parking Hawk 1.41", fg=conf["window_topbar_fg"], bg=conf["window_bg"], font=(conf["window_topbar_font"], conf["window_topbar_size"]))
+Top_labe = tk.Label(Top_Frame, text="Parking Hawk 1.42", fg=conf["window_topbar_fg"], bg=conf["window_bg"], font=(conf["window_topbar_font"], conf["window_topbar_size"]))
 Top_labe.pack(side=tk.LEFT)
 StatisticT = tk.Label(Top_Frame, fg=conf["header_fg"], bg=conf["window_bg"], font=(conf["notebook_tab_font"], conf["notebook_tab_size"]))
 StatisticT.pack(side=tk.LEFT, padx=(20,1))
