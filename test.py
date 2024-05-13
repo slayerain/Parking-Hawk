@@ -193,7 +193,7 @@ SQL_Driver={ODBC Driver 18 for SQL Server}
 SQL_Login=Parking_Hawk
 SQL_Password=SQl12345
 Overparking_Timeout=2
-Year_List=2023|2024|2025|2026|2027|2028|2029|2030|2031|2032|2033
+Year_List=2023|2024|2025|2026|2027|2028|2029|2030|2031|2032|2033|2034|2035
 Month_List=January|February|March|April|May|June|July|August|September|October|November|December
 SQL_path=Z:\\Max\\Overparking\\
 chk_path=Z:\\Max\\CheckYard\\
@@ -207,7 +207,7 @@ DataBaseStructure = {
 "Tenant_Trucks_UNREG": [("company_ID", "smallint"), ("truck_number", "varchar(50)"), ("status", "bit"), ("last_date", "smalldatetime")],
 "Tenant_Trailers_UNREG": [("company_ID", "smallint"), ("trailer_number", "varchar(50)"), ("storage", "bit"), ("status", "bit"), ("last_date", "smalldatetime")],
 "visitors_UNREG": [("company_ID", "smallint"), ("plates", "varchar(50)"), ("driver_name", "varchar(50)"), ("car_model", "varchar(50)"), ("car_color", "varchar(50)"), ("expiration", "date"), ("private", "bit"), ("status", "bit"), ("last_date", "smalldatetime")],
-"OVERPARKING": [("date", "date"), ("company_ID", "smallint"), ("over_count", "smallint"), ("trucks_onyard", "varchar(MAX)"), ("trailers_onyard", "varchar(MAX)"), ("vehicles_onyard", "varchar(50)"), ("last_time", "time(7)"), ("over_time", "varchar(MAX)")],
+"OVERPARKING": [("date", "date"), ("company_ID", "smallint"), ("over_count", "smallint"), ("trucks_onyard", "varchar(MAX)"), ("trailers_onyard", "varchar(MAX)"), ("vehicles_onyard", "varchar(50)"), ("last_time", "time(7)"), ("over_time", "varchar(MAX)"), ("last_over_count", "smallint"), ("last_trucks_onyard", "varchar(MAX)"), ("last_trailers_onyard", "varchar(MAX)")],
 "GN_Trucks": [("truck_number", "varchar(50)"), ("status", "bit"), ("last_date", "smalldatetime"), ("city", "bit")],
 "Car_Vendors": [("ID", "smallint"), ("Vendor", "varchar(50)")],
 "GN_Flatbed": [("fb_number", "varchar(50)"), ("storage", "bit"), ("status", "bit"), ("last_date", "smalldatetime"), ("LU", "bit")],
@@ -479,10 +479,37 @@ def TESTER():
                 if column_name not in existing_columns:
                     #try add table
                     try:
-                        cursor.execute(f"ALTER TABLE [dbo.{table_name}] ADD {column_name} {data_type}")
-                    except:
+                        #######
+                        choize = messagebox.askyesno("Database Error", f"Required Table wasn't found in Database.\nWould you like to create new?\n(SQL Admin Login Required)")
+                        if choize:
+                            while True:
+                                login = admin_connect()
+                                try:
+                                    admconnection = pyodbc.connect(f"DRIVER={SQLDRIVER};Server={SQLSERVERNAME};UID={login[0]};TrustedServerCertificate=1;Encrypt=No;PWD={login[1]}")
+                                    admconnection.autocommit = True
+                                except Exception as e:
+                                    debuger(e)
+                                    choize = messagebox.askyesno("Connection Error", f"Cannot connect to Database\nCheck your Login and Password.\nTry again?")
+                                    if choize:
+                                        continue
+                                    else:
+                                        admconnection.close()
+                                        sys.exit()
+                                try:
+                                    admcursor = admconnection.cursor()
+                                    admcursor.execute(f"ALTER TABLE [dbo.{table_name}] ADD {column_name} {data_type}")
+                                except Exception as e:
+                                    debuger(e)
+                                    admconnection.close()
+                                    choize = messagebox.askyesno("Table Creation Error", f"Table could not be created.\nCheck your permission in SQL Server")
+                                    if choize:
+                                        continue
+                                    else:
+                                        admconnection.close()
+                                        sys.exit()
+                    except Exception as e:
+                        print(f"Error HERE!\n{e}")
                         error(15)
-                        connection.close()
                         sys.exit()
                 elif existing_columns[column_name] != data_type:
                     choize = messagebox.askyesno("Data Type Mismatch", f"Data type for column '{column_name}' in table '{table_name}' does not match.\nExpected data: {data_type}\nCurrent data:{existing_columns[column_name]}\nDo you want to replace it? Data might be lost.")
@@ -519,7 +546,6 @@ def TESTER():
         sys.close()
 
 TESTER()
-
 
 #SQL Requests Function
 def SQL_REQ(query, vars, mode):
@@ -2262,78 +2288,36 @@ def OVERPARKING (event, func):
         #event_datetime = event_datetime - timedelta(hours=12) # to remove
         event["Time"] = event_datetime.strftime("%H:%M:%S")
 
-        ######!!!!!!#######
+        ######!!!MAIN!!!#######
         #check if there is over record TODAY
         row, col = SQL_REQ("SELECT * FROM dbo.OVERPARKING WHERE date=? AND company_ID=?", (event["Date"], str(spot_list["company_ID"])), "S_one_D")
         if row:
             last_record = {col[i][0]: y if y is not None else 0 for i, y in enumerate(row)}
-            #sep = "."
-
-            #last_record["last_time"] = str(last_record["last_time"]).split(sep, 1)[0] # posssible the problem
-            #if last_record["last_time"] == "0": last_record["last_time"] = "00:00:00" # fix
-
             if last_record["over_count"] < onYardOver:
                 #add current time in the list of over times
                 if last_record["over_time"] !=0: over_time = last_record["over_time"]+"|"+str(event["Time"])
                 else: over_time = str(event["Time"])
                 #update over record
-                SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], over_time, str(spot_list["company_ID"]), event["Date"]), "W")
+                SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=?, last_over_count=?, last_trucks_onyard=?, last_trailers_onyard=? WHERE company_ID=? AND date=?",
+                        (str(onYardOver), units[0], units[1], event["Time"], over_time, str(onYardOver), units[0], units[1], str(spot_list["company_ID"]), event["Date"]), "W")
             elif last_record["over_count"] > onYardOver:
-                #check if current time is under "2h" allowed time from midnight
-                # if event_datetime.hour < int(sets["Overparking_Timeout"]):
-                #     # taking previolus day overparking
-                #     row, col = SQL_REQ("SELECT * FROM dbo.OVERPARKING WHERE date < (SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=?) AND company_ID=? ORDER BY date ASC", (str(spot_list["company_ID"]), str(spot_list["company_ID"])), "S_one_D")
-                #     if row:
-                #         previous_record = {col[i][0]: y if y is not None else 0 for i, y in enumerate(row)}
-                #         if previous_record["over_count"] != 0 and previous_record["over_count"] >= onYardOver:
-                #             if previous_record["over_time"] !=0:
-                #                 pr_over_times = previous_record["over_time"].split("|")
-                #                 pr_over_times.sort()
-                #                 #review previous day overparking time markers and check if there is less "2h" difference and reduce over if it is
-                #                 for time_str in pr_over_times:
-                #                     event_delta = int(((event_datetime) - (datetime.strptime(str(previous_record["date"]) + " " + str(time_str), "%Y-%m-%d %H:%M:%S"))).total_seconds()) // 3600
-                #                     if event_delta < int(sets["Overparking_Timeout"]):
-                #                         if previous_record["over_count"] >= onYardOver:
-                #                             previous_over_new = str(int(previous_record["over_count"])-1)
-                #                         pr_over_times.remove(time_str)
-                #                         pr_over_time_new = "|".join(pr_over_times)
-                #                         if pr_over_time_new == "": pr_over_time_new = None
-                #                         SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE date=? AND company_ID=?", (previous_over_new, units[0], units[1], event["Time"], pr_over_time_new, previous_record["date"], str(spot_list["company_ID"])), "W")
-                #                         SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], str(spot_list["company_ID"]), event["Date"]), "W")
-                #                         return
-                #                     else: continue
                 # # review previous overparking time markers and check if there is less "2h" difference remove latest marker and replace overparking with current
                 if last_record["over_time"] != 0:
                     over_time_list = last_record["over_time"].split("|")
                     over_time_list.sort(reverse=True)
                     if over_time_list:
-                        # latest_time_str = over_time_list[0]
-                        # time_delta = event_datetime - datetime.strptime(f"{last_record['date']} {latest_time_str}", "%Y-%m-%d %H:%M:%S")
                         event_delta = int((event_datetime - datetime.strptime(f"{last_record['date']} {over_time_list[0]}", "%Y-%m-%d %H:%M:%S")).total_seconds()) // 3600
                         if event_delta < int(sets["Overparking_Timeout"]):
                             over_time_list.pop(0)
                             over_time_list_new = "|".join(over_time_list) if over_time_list else None
-                            SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], over_time_list_new, str(spot_list["company_ID"]), event["Date"]), "W")
+                            SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=?, last_over_count=?, last_trucks_onyard=?, last_trailers_onyard=? WHERE company_ID=? AND date=?",
+                                    (str(onYardOver), units[0], units[1], event["Time"], over_time_list_new, str(onYardOver), units[0], units[1], str(spot_list["company_ID"]), event["Date"]), "W")
                             return
-
-
-                #OLD COPY
-                # if last_record["over_time"] != 0:
-                #     over_time_list = last_record["over_time"].split("|")
-                #     over_time_list.sort()
-                #     for time_str in over_time_list:
-                #         event_delta = int(((event_datetime) - (datetime.strptime(str(last_record["date"]) + " " + str(time_str), "%Y-%m-%d %H:%M:%S"))).total_seconds()) // 3600
-                #         if event_delta < int(sets["Overparking_Timeout"]):
-                #             over_time_list.remove(time_str)
-                #             over_time_list_new = "|".join(over_time_list)
-                #             if over_time_list_new == "": over_time_list_new = None
-                #             SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=?, over_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], over_time_list_new, str(spot_list["company_ID"]), event["Date"]), "W")
-                #             return
-                # else:
-                #     if event_datetime.hour < int(sets["Overparking_Timeout"]):
-                #         SQL_REQ("UPDATE dbo.OVERPARKING SET over_count=?, trucks_onyard=?, trailers_onyard=?, last_time=? WHERE company_ID=? AND date=?", (str(onYardOver), units[0], units[1], event["Time"], str(spot_list["company_ID"]), event["Date"]), "W")
-                #         return
-            else: pass # when over the same
+                        SQL_REQ("UPDATE dbo.OVERPARKING SET last_time=?, last_over_count=?, last_trucks_onyard=?, last_trailers_onyard=? WHERE company_ID=? AND date=?",
+                            (event["Time"], str(onYardOver), units[0], units[1], str(spot_list["company_ID"]), event["Date"]), "W")
+            #when over the same - update last over, last trucks, last trailers
+            else: SQL_REQ("UPDATE dbo.OVERPARKING SET last_time=?, last_over_count=?, last_trucks_onyard=?, last_trailers_onyard=? WHERE company_ID=? AND date=?",
+                            (event["Time"], str(onYardOver), units[0], units[1], str(spot_list["company_ID"]), event["Date"]), "W")
         #if no overparking record for today
         else:  # NO overparking for today
                 ###check if previous over was yesturday or later, if later - copy over to next day and reduce over for previous if its under over_time
@@ -2361,33 +2345,60 @@ def OVERPARKING (event, func):
                             rounded_dt = previous_over_time.replace(second=0, microsecond=0)
                             unit_numbers_toremove = SQL_REQ("SELECT truck_number, trailer_number FROM dbo.Tenant_History WHERE datetime_event=?", (rounded_dt,), "S_all")
                             if unit_numbers_toremove:
-                                print("ok")
                                 new_trucks_onyard = previous_record["trucks_onyard"].replace("|"+unit_numbers_toremove[0][0], "").replace(unit_numbers_toremove[0][0], "")
                                 new_trailer_onyard = previous_record["trailers_onyard"].replace("|"+unit_numbers_toremove[0][1], "").replace(unit_numbers_toremove[0][1], "")
-                            print(f"{new_trucks_onyard}...{new_trailer_onyard}")
-                            SQL_REQ("UPDATE dbo.OVERPARKING SET over_time=?, over_count=?, trucks_onyard=?, trailers_onyard=? WHERE date=(SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=?)",
-                                    (pr_time_new, new_over_count, str(new_trucks_onyard), str(new_trailer_onyard), str(spot_list["company_ID"])), "W")
+                            SQL_REQ("UPDATE dbo.OVERPARKING SET over_time=?, over_count=?, trucks_onyard=?, trailers_onyard=?, last_over_count=?, last_trucks_onyard=?, last_trailers_onyard=? WHERE date=(SELECT max(date) FROM dbo.OVERPARKING WHERE company_ID=?)",
+                                    (pr_time_new, new_over_count, str(new_trucks_onyard), str(new_trailer_onyard), new_over_count,  str(new_trucks_onyard), str(new_trailer_onyard), str(spot_list["company_ID"])), "W")
                             if days_delta > 1 and not trig:
                                 next_date = previous_record["date"] + timedelta(days=1)
-                                SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)",
-                                        (next_date, str(spot_list["company_ID"]), previous_record["over_count"], previous_record["trucks_onyard"], previous_record["trailers_onyard"], None, None), "W")
+
+                                SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time, last_over_count, last_trucks_onyard, last_trailers_onyard) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                                        (next_date, str(spot_list["company_ID"]), previous_record["over_count"], previous_record["trucks_onyard"], previous_record["trailers_onyard"], None, None, previous_record["over_count"], previous_record["trucks_onyard"], previous_record["trailers_onyard"]), "W")
                                 trig = True
+                        ##block check if last over of previous record smaller than previous over and there is a gap in days - replace previous over on last over of the next day.
+                        else:
+                            if previous_record["last_over_count"] != "" and not trig:
+                                # if previous over bigger than last over
+                                if int(previous_record["over_count"])>int(previous_record["last_over_count"]):
+                                    previous_day = datetime.strptime(str(previous_record["date"]), "%Y-%m-%d").date()
+                                    print(f"previous_day {previous_day}")
+                                    current_day = datetime.strptime(event["Date"], "%Y/%m/%d").date()
+                                    print(f"current_day {current_day}")
+                                    days_gap = current_day - previous_day
+                                    # if gap between today and last record is more than 1 day - inserting last over as main over for day after last record
+                                    if days_gap.days>1:
+                                        next_day = previous_day + timedelta(days=1)
+                                        print(next_day)
+                                        for key in previous_record:
+                                            print(key)
+                                        SQL_REQ("INSERT INTO dbo.OVERPARKING (date, company_ID, over_count, trucks_onyard, trailers_onyard, last_time, over_time, last_over_count, last_trucks_onyard, last_trailers_onyard) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                                                (next_day, previous_record["company_ID"], previous_record["last_over_count"], previous_record["last_trucks_onyard"],
+                                                 previous_record["last_trailers_onyard"], None, None, previous_record["last_over_count"], previous_record["last_trucks_onyard"],
+                                                 previous_record["last_trailers_onyard"]), "W")
+                                        trig = True
+
+
                         ##
                 # IF previous over bigger make over record without marker
                 if previous_record["over_count"] > onYardOver:
-                    SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time) VALUES (?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"]), "W")
+                    SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time, last_over_count, last_trucks_onyard, last_trailers_onyard) VALUES (?,?,?,?,?,?,?,?,?)",
+                            (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(onYardOver), units[0], units[1]), "W")
                 # IF previous over smaller - make over record with marker
                 elif previous_record["over_count"] < onYardOver:
-                    SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"])), "W")
+                    SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time,last_over_count, last_trucks_onyard, last_trailers_onyard) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                            (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"]), str(onYardOver), units[0], units[1]), "W")
                 # IF previous over same = make over record with marker IF time less than 2h.
                 elif previous_record["over_count"] == onYardOver:
                     if event_datetime.hour < int(sets["Overparking_Timeout"]):
-                        SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"])), "W")
+                        SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time, last_over_count, last_trucks_onyard, last_trailers_onyard) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                                (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"]),  str(onYardOver), units[0], units[1]), "W")
                     else:
-                        SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time) VALUES (?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"]), "W")
+                        SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time, last_over_count, last_trucks_onyard, last_trailers_onyard) VALUES (?,?,?,?,?,?,?,?,?)",
+                                (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"],  str(onYardOver), units[0], units[1]), "W")
                 return
                 # create over if there is NO previous records but there is overparking now
-            if onYardOver > 0: SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time) VALUES (?,?,?,?,?,?,?)", (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"])), "W")
+            if onYardOver > 0: SQL_REQ("INSERT INTO dbo.OVERPARKING (date,company_ID,over_count,trucks_onyard,trailers_onyard,last_time,over_time, last_over_count, last_trucks_onyard, last_trailers_onyard) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                                       (event["Date"], str(spot_list["company_ID"]), str(onYardOver), units[0], units[1], event["Time"], str(event["Time"]), str(onYardOver), units[0], units[1]), "W")
             else: return
     elif func == "GN": #function for GN overparking if need in the future
         statistics_reg("GN")
@@ -4024,6 +4035,7 @@ def chk_set(var, *args):
 
 ###RECORD INFO IN TXT FILE - TEMP to replace on SQL
 def Tenant_Record(record):
+
     global security
     val = SQL_REQ("SELECT company_ID FROM dbo.Company_List WHERE company_name=?", (record["Company"],), "S_all")
     if val:
@@ -4054,6 +4066,8 @@ def Tenant_Record(record):
         if truck_status is False: pass  # function to investigate who fucked up
         if truck_status is not None: SQL_REQ("UPDATE dbo.Tenant_Trucks SET status=0, last_date=?  WHERE company_ID=? AND truck_number=?", (event_date, _id, record["Truck"]), "W")
         if trailer_status is not None: SQL_REQ("UPDATE dbo.Tenant_Trailers SET status=0, last_date=? WHERE company_ID=? AND trailer_number=?", (event_date, _id, record["Trailer"]), "W")
+    #ReCheckTruck = SQL_REQ("SELECT truck, status FROM dbo.Tenant_Truck")
+
     OVERPARKING(record, "T")
 
 
@@ -4160,7 +4174,7 @@ def GN_Record(record):
         else:
             c_ID = None
             error(14)
-            return
+            #return
         if record["Status"] is True:
             if c_ID is not None:
                 check_truck = SQL_REQ("SELECT status FROM dbo.Tenant_Trucks WHERE truck_number=? AND company_ID=?", (record["Truck"], str(c_ID)), "S_one")
@@ -4813,6 +4827,15 @@ def to_QR(plates_number, company_name, driver_name, exp_date):
 # MAIN WINDOW CONFIGURATIONS
 root = tk.Tk()
 root.title = ("Parking Hawk")
+# Set the icon for the window
+try:
+    if getattr(sys, 'frozen', False):
+        # Running in PyInstaller bundle
+        root.iconbitmap(default=sys.executable)
+    else:
+        root.iconbitmap(default='icon.ico')
+except:
+    pass
 root.attributes("-fullscreen", True)
 root.configure(bg=conf["window_bg"])
 stl = ttk.Style()           #to be configure
@@ -4833,7 +4856,7 @@ stl.configure("CustomV.TEntry", fieldbackground=conf["widget_bg"])
 # TOP WINDOW BAR AND FUNCTIONALITY BUTTONS
 Top_Frame = tk.Frame(root, relief=tk.RAISED, bg=conf["window_bg"], borderwidth=2, highlightthickness=0)
 Top_Frame.pack(side=tk.TOP, fill=tk.X)
-Top_labe = tk.Label(Top_Frame, text="Parking Hawk 1.42", fg=conf["window_topbar_fg"], bg=conf["window_bg"], font=(conf["window_topbar_font"], conf["window_topbar_size"]))
+Top_labe = tk.Label(Top_Frame, text="Parking Hawk 1.43", fg=conf["window_topbar_fg"], bg=conf["window_bg"], font=(conf["window_topbar_font"], conf["window_topbar_size"]))
 Top_labe.pack(side=tk.LEFT)
 StatisticT = tk.Label(Top_Frame, fg=conf["header_fg"], bg=conf["window_bg"], font=(conf["notebook_tab_font"], conf["notebook_tab_size"]))
 StatisticT.pack(side=tk.LEFT, padx=(20,1))
@@ -5907,6 +5930,13 @@ def generate():
     else:
         for x in SQL_REQ("SELECT company_ID FROM dbo.Company_list WHERE company_name=? ORDER BY company_name", (comp,), "S_one"): c_ID = x
         to_Excel(date, c_ID)
+    #removing 12 month old over records
+    try:
+        SQL_REQ("DELETE FROM dbo.OVERPARKING WHERE [date]<DATEADD(year, -1, GETDATE())",(), "W")
+        messagebox.showinfo("Information", f"Overparking have been created into folder: {sets['SQL_path']}\nOld Overparking were DELETED!")
+    except Exception as e:
+        error(f"Cannot delete records of old Overparking:\n{e}")
+        debuger(e)
 
 year_list = list(sets["Year_List"].split("|"))
 month_list = list(sets["Month_List"].split("|"))
